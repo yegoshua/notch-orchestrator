@@ -14,7 +14,9 @@ import SwiftUI
 final class RequestCardController {
     /// A card that has only just appeared ignores decisions for this long: a key or click aimed
     /// at the request before it must not land on one the user has not seen yet.
-    private static let settleDelay: TimeInterval = 0.4
+    /// Longer than a double click, so the second click of one cannot answer the next card, whose
+    /// button sits in the same place.
+    private static let settleDelay: TimeInterval = max(0.6, NSEvent.doubleClickInterval + 0.1)
 
     private let panel: NSPanel
     private let model: AppModel
@@ -58,6 +60,7 @@ final class RequestCardController {
         }
         if head.id != shown?.id {
             shownSince = Date()
+            contentHeight = 0
             draft.explanation = ""
             registerHotkeys(for: head)
         }
@@ -81,8 +84,10 @@ final class RequestCardController {
             hosting.rootView = content
         } else {
             let hosting = FirstClickHostingView(rootView: content)
+            // The panel is sized from the height the card reports; left to itself the hosting view
+            // imposes a minimum of its own, measured without a width, that is far too tall.
+            hosting.sizingOptions = []
             panel.contentView = hosting
-            contentHeight = hosting.fittingSize.height
         }
         layout()
         // Shown, never activated: the app in front keeps the keyboard.
@@ -91,6 +96,7 @@ final class RequestCardController {
 
     private func hide() {
         shown = nil
+        contentHeight = 0
         allowHotkey = nil
         denyHotkey = nil
         draft.explanation = ""

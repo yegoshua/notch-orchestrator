@@ -726,3 +726,47 @@ private func askQuestions(_ core: inout SessionCore, _ id: String, at time: Date
         #expect(core.drainResolutions() == [Resolution(requestID: "1", outcome: noDecision)])
     }
 }
+
+/// Requests in a session that also runs subagents.
+@Suite struct RequestsAndSubagents {
+    @Test func theSameCallRunByAnotherAgentDoesNotSettleTheRequest() {
+        var core = SessionCore()
+        core.handle(event("UserPromptSubmit"), at: t)
+        ask(&core, "r1", "git status", at: t + 1)
+
+        core.handle(event("PostToolUse", tool: bash("git status"), agentID: "b"), at: t + 2)
+
+        let snapshot = core.snapshot(at: t + 2)
+        #expect(snapshot.requests.map(\.id) == ["r1"])
+        #expect(snapshot.counters.waiting == 1)
+        #expect(core.drainResolutions().isEmpty)
+    }
+
+    @Test func aSubagentsRequestGoesWithTheNextPromptTheHumanTypes() {
+        var core = SessionCore()
+        core.handle(event("UserPromptSubmit"), at: t)
+        core.handle(event("PermissionRequest", tool: bash("./hello.sh"), agentID: "a"), at: t + 1, requestID: "r1")
+        core.decide(.handBack, on: "r1", at: t + 2)
+        _ = core.drainResolutions()
+
+        // The human refused in the terminal, which reports nothing, and typed the next prompt.
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s", prompt: "Do something else"), at: t + 10)
+
+        let snapshot = core.snapshot(at: t + 10)
+        #expect(snapshot.counters == Counters(working: 1))
+        #expect(core.snapshot(at: t + 10 + 400).counters == Counters(working: 1))
+    }
+
+    @Test func aPromptClaudeCodeSubmitsItselfDoesNotSettleAnything() {
+        var core = SessionCore()
+        core.handle(event("UserPromptSubmit"), at: t)
+        ask(&core, "r1", at: t + 1)
+
+        core.handle(
+            HookEvent(name: "UserPromptSubmit", sessionID: "s", prompt: "<task-notification>done</task-notification>"),
+            at: t + 2)
+
+        #expect(core.snapshot(at: t + 2).requests.map(\.id) == ["r1"])
+        #expect(core.drainResolutions().isEmpty)
+    }
+}

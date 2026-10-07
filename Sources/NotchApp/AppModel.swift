@@ -117,19 +117,23 @@ final class AppModel: ObservableObject {
     private var heldRequests: [String: HeldRequest] = [:]
 
     private func receiveRequest(_ payload: Data, _ held: HeldRequest) {
-        guard let event = HookEvent(payload: payload) else {
+        guard let event = HookEvent(payload: payload), event.name == ClaudeSettings.permissionEvent else {
             held.respond(with: Data())
             return
         }
         let id = UUID().uuidString
         heldRequests[id] = held
         held.onClientGone = { [weak self] in
-            guard let self, self.heldRequests[id] != nil else { return }
+            guard let self, self.heldRequests.removeValue(forKey: id) != nil else { return }
             self.core.connectionDropped(id, at: Date())
             self.refreshSnapshot()
         }
         core.handle(event, at: Date(), requestID: id)
         refreshSnapshot()
+        // Whatever the core did not take on is answered now rather than left hanging.
+        if !core.isOpen(id) {
+            heldRequests.removeValue(forKey: id)?.respond(with: Data())
+        }
     }
 
     /// The user's decision on a request in the queue.

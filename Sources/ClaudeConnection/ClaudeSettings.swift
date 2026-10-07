@@ -47,11 +47,12 @@ public enum ClaudeSettings {
     /// The permission hook differs in two ways: it prints the response body, which is how a command
     /// hook hands its decision to Claude Code, and it waits for the user instead of two seconds.
     /// With nothing listening it still prints nothing and succeeds at once, and an empty output is
-    /// "no decision": Claude Code carries on with its own dialog.
+    /// "no decision": Claude Code carries on with its own dialog. `-f` keeps the body of an error
+    /// response from being printed as if it were a decision.
     static func command(for event: String, _ connection: HookConnection) -> String {
         let headerFile = connection.tokenHeaderFile.path.replacingOccurrences(of: "'", with: "'\\''")
         let waits = event == permissionEvent
-        return "/usr/bin/curl -q -s -m \(waits ? permissionHookTimeout - 10 : 2) --noproxy '*' "
+        return "/usr/bin/curl -q -s\(waits ? " -f" : "") -m \(waits ? permissionHookTimeout - 10 : 2) --noproxy '*' "
             + (waits ? "" : "-o /dev/null ") + "-H @'\(headerFile)' "
             + "-H 'Content-Type: application/json' --data-binary @- "
             + "http://127.0.0.1:\(connection.port)/hook/\(event) 2>/dev/null || true \(marker)"

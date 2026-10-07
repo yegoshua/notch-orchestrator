@@ -317,16 +317,22 @@ public struct SessionCore {
         }
         switch event.name {
         case "PostToolUse":
-            // The call ran, so it was allowed.
+            // The call ran, so it was allowed. Another agent of the session making the same call
+            // says nothing about this one.
             if let tool = event.tool, let index = record.requests.firstIndex(where: {
-                RequestPresentation.isSameCall($0.toolName, $0.input, as: tool)
+                $0.agentID == subagentID && RequestPresentation.isSameCall($0.toolName, $0.input, as: tool)
             }) {
                 settled.append(record.requests.remove(at: index))
             }
         case "PostToolBatch":
             // Every call of the batch has run or was refused.
             take { $0.agentID == subagentID }
-        case "UserPromptSubmit", "Stop", "StopFailure":
+        case "UserPromptSubmit":
+            // A prompt Claude Code submits itself continues the turn and settles nothing. One the
+            // human typed means no dialog is open any more, whoever had asked.
+            if event.prompt?.hasPrefix("<task-notification>") == true { return }
+            take { _ in true }
+        case "Stop", "StopFailure":
             take { $0.agentID == nil }
         case "SubagentStop":
             take { $0.agentID != nil && $0.agentID == subagentID }
@@ -372,6 +378,11 @@ public struct SessionCore {
         record.lastEventAt = max(record.lastEventAt, time)
         record.requestsChanged(at: time)
         records[sessionID] = record
+    }
+
+    /// Whether the core still tracks the request: the caller owes it a held connection only then.
+    public func isOpen(_ requestID: String) -> Bool {
+        locate(requestID) != nil
     }
 
     /// The client closed the held connection of a request before any answer: the human refused

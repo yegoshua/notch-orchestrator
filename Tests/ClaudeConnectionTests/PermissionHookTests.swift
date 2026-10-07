@@ -225,6 +225,20 @@ private let allow = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest"
         #expect(!command.contains("s3cret"))
     }
 
+    /// Whatever answers with an error is not the app deciding: its body must not reach Claude Code.
+    @Test(arguments: ["401 Unauthorized", "500 Internal Server Error"])
+    func theBodyOfAnErrorResponseIsNotPrinted(status: String) throws {
+        let server = try HoldingServer(status: status, body: allow, hold: 0)
+        let header = try headerFile()
+        defer { try? FileManager.default.removeItem(at: header) }
+
+        let result = try run(try permissionCommand(port: server.port, headerFile: header.path), input: request)
+
+        #expect(result.output == "")
+        #expect(result.errors == "")
+        #expect(result.status == 0)
+    }
+
     @Test func anEmptyAnswerPrintsNothingSoClaudeCodeKeepsItsOwnDialog() throws {
         let server = try HoldingServer(body: "", hold: 0)
         let header = try headerFile()
