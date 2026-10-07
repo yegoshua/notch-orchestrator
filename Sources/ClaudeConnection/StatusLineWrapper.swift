@@ -65,6 +65,15 @@ extension ClaudeSettings {
         }
     }
 
+    /// Whether the status line in `settings` is our wrapper, so that usage limits reach the app.
+    /// False while the hooks are installed means a `statusLine` we could not chain to.
+    public static func forwardsUsageLimits(in settings: Data?) -> Bool {
+        guard let settings, let root = try? OrderedJSON(parsing: settings),
+              case .string(let command)? = root["statusLine"]?["command"]
+        else { return false }
+        return WrappedStatusLine(command) != nil
+    }
+
     /// A status line command recognised as our wrapper.
     private struct WrappedStatusLine {
         /// The command it chains to; nil when there was no status line before.

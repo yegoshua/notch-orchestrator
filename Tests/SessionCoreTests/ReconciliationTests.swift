@@ -368,3 +368,67 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         #expect(session.subagents.isEmpty)
     }
 }
+
+/// A turn the hooks announced, with no process to confirm that it is still going.
+@Suite struct UnconfirmedWork {
+    private let start = Date(timeIntervalSince1970: 1_791_380_000)
+
+    private func working(until last: TimeInterval = 0) -> SessionCore {
+        var core = SessionCore()
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: start)
+        if last > 0 {
+            core.handle(HookEvent(name: "PreToolUse", sessionID: "s", tool: .init(name: "Bash")), at: start + last)
+        }
+        return core
+    }
+
+    @Test func itStaysWorkingWhileSignsOfLifeAreRecent() {
+        var core = working()
+        core.reconcile(observation("s", .unknown, .inProgress, at: start + 1), observedAt: start + 60)
+
+        #expect(core.snapshot(at: start + 60).counters == Counters(working: 1))
+    }
+
+    @Test func itBecomesUnknownOnceNothingHasMovedForAWhile() throws {
+        var core = working()
+        core.reconcile(observation("s", .unknown, .inProgress, at: start + 1), observedAt: start + 200)
+
+        let snapshot = core.snapshot(at: start + 200)
+        #expect(snapshot.counters == Counters())
+        #expect(try #require(snapshot.sessions.first).state == .unknown)
+        // Unknown ages out like a finished turn, counted from the last sign of life.
+        #expect(core.snapshot(at: start + 1 + 600).sessions.isEmpty)
+    }
+
+    @Test func itBecomesUnknownWithoutAReadableTranscriptToo() throws {
+        var core = working()
+        core.reconcile(observation("s", .unknown), observedAt: start + 200)
+
+        #expect(try #require(core.snapshot(at: start + 200).sessions.first).state == .unknown)
+    }
+
+    @Test func aRecentHookOrTranscriptEntryKeepsItWorking() {
+        var hooked = working(until: 150)
+        hooked.reconcile(observation("s", .unknown, .inProgress, at: start + 1), observedAt: start + 200)
+        #expect(hooked.snapshot(at: start + 200).counters == Counters(working: 1))
+
+        var written = working()
+        written.reconcile(observation("s", .unknown, .inProgress, at: start + 150), observedAt: start + 200)
+        #expect(written.snapshot(at: start + 200).counters == Counters(working: 1))
+    }
+
+    @Test func aLiveProcessKeepsItWorkingHoweverLongTheTurn() {
+        var core = working()
+        core.reconcile(observation("s", .alive, .inProgress, at: start + 1), observedAt: start + 86400)
+
+        #expect(core.snapshot(at: start + 86400).counters == Counters(working: 1))
+    }
+
+    @Test func theNextToolResultMakesItWorkingAgain() {
+        var core = working()
+        core.reconcile(observation("s", .unknown, .inProgress, at: start + 1), observedAt: start + 200)
+        core.handle(HookEvent(name: "PostToolUse", sessionID: "s"), at: start + 210)
+
+        #expect(core.snapshot(at: start + 210).counters == Counters(working: 1))
+    }
+}

@@ -3,7 +3,8 @@ import Combine
 import SwiftUI
 
 /// The session list that drops out of the notch. Hovering the notch or pressing the global hotkey
-/// opens it; the pointer leaving it, or Escape, closes it. It never takes keyboard focus.
+/// opens it; the pointer leaving it closes it, and so does Escape or the hotkey when the hotkey
+/// opened it. It never takes keyboard focus.
 @MainActor
 final class ExpandedPanelController {
     private static let openDelay: TimeInterval = 0.12
@@ -15,7 +16,7 @@ final class ExpandedPanelController {
     private var observers: [NSObjectProtocol] = []
     private var snapshotChanges: AnyCancellable?
     private var hotkey: GlobalHotkey?
-    /// Held only while the list is open, so Escape works everywhere else as usual.
+    /// Held only while a list opened by the hotkey is showing, so Escape works everywhere else as usual.
     private var escape: GlobalHotkey?
     private var pending: DispatchWorkItem?
     /// Opened by hotkey with the pointer elsewhere: leaving only counts once the pointer has come in.
@@ -85,8 +86,12 @@ final class ExpandedPanelController {
         panel.contentView = NSHostingView(rootView: SessionListView(model: model, topInset: Self.topInset(on: screen)))
         layout()
         panel.orderFrontRegardless()
-        escape = GlobalHotkey(keyCode: HotkeySetting.escapeKeyCode, modifiers: 0) { [weak self] in
-            self?.collapse()
+        // Taking Escape away from the frontmost app is only fair when a key opened the list.
+        // Opened by hovering, it closes when the pointer leaves.
+        if !byPointer {
+            escape = GlobalHotkey(keyCode: HotkeySetting.escapeKeyCode, modifiers: 0) { [weak self] in
+                self?.collapse()
+            }
         }
         pointerPoll = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pointerMoved() }

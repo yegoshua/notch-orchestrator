@@ -129,7 +129,18 @@ private let payload = #"{"session_id": "e9952653", "rate_limits": {"five_hour": 
 
         #expect(try #require(after["statusLine"] as? NSObject) == before["statusLine"] as? NSObject)
         #expect(ClaudeSettings.isInstalled(connection, in: installed))
+        #expect(!ClaudeSettings.forwardsUsageLimits(in: installed))
         #expect(String(decoding: try ClaudeSettings.removing(from: installed), as: UTF8.self) == original)
+    }
+
+    @Test(arguments: [nil, "~/.claude/statusline.sh"])
+    func anInstalledWrapperIsReportedAsForwardingUsageLimits(previous: String?) throws {
+        let original = settings(statusLine: previous.map(commandStatusLine))
+        let installed = try ClaudeSettings.installing(connection, into: Data(original.utf8))
+
+        #expect(ClaudeSettings.forwardsUsageLimits(in: installed))
+        #expect(!ClaudeSettings.forwardsUsageLimits(in: Data(original.utf8)))
+        #expect(!ClaudeSettings.forwardsUsageLimits(in: nil))
     }
 }
 

@@ -35,6 +35,9 @@ struct AppConfig {
         HookConnection(port: port, tokenHeaderFile: supportDirectory.appendingPathComponent("hook-header"))
     }
 
+    /// The last known usage limits, kept across restarts.
+    var usageLimitsFile: URL { supportDirectory.appendingPathComponent("usage-limits.json") }
+
     /// The secret our hook entries send. Created on first use and kept in a file only the user can
     /// read, in the form curl takes as a header file.
     func token() throws -> String {

@@ -38,16 +38,25 @@ public struct LimitsSnapshot: Equatable, Sendable {
 
 /// Last known usage limits of the account. Pure: no UI, no system access, no clock of its own.
 /// Kept apart from the session state: limits are account-wide, so a report from any session counts.
-public struct UsageLimits: Sendable {
+/// Codable so that the last known figures survive an app restart; `staleAfter` is not stored.
+public struct UsageLimits: Sendable, Codable {
     /// Age from which a reading is marked stale.
-    public var staleAfter: TimeInterval
+    public var staleAfter: TimeInterval = 900
     private var fiveHour: Record?
     private var sevenDay: Record?
 
-    private struct Record: Sendable {
+    private struct Record: Sendable, Codable {
         var window: UsageWindow
         var reportedAt: Date
     }
+
+    private enum CodingKeys: CodingKey {
+        case fiveHour, sevenDay
+    }
+
+    /// Reset times of one window were only ever seen as round values, but nothing promises that
+    /// every session reports the same second.
+    private static let sameWindowTolerance: TimeInterval = 60
 
     public init(staleAfter: TimeInterval = 900) {
         self.staleAfter = staleAfter
@@ -65,11 +74,13 @@ public struct UsageLimits: Sendable {
     /// Every session reports the figure it saw last, so an idle session can report an old one long
     /// after another session moved the account on. Within one window usage only grows, and a window
     /// that resets earlier is an earlier window: both mark the incoming figure as the older one.
+    /// The same figure again is no news either, so it does not make the reading any fresher.
     private static func merge(_ incoming: UsageWindow?, into record: inout Record?, at time: Date) {
         guard let incoming else { return }
         if let known = record?.window {
-            if incoming.resetsAt < known.resetsAt { return }
-            if incoming.resetsAt == known.resetsAt && incoming.usedPercentage < known.usedPercentage { return }
+            let sameWindow = abs(incoming.resetsAt.timeIntervalSince(known.resetsAt)) <= sameWindowTolerance
+            if sameWindow && incoming.usedPercentage <= known.usedPercentage { return }
+            if !sameWindow && incoming.resetsAt < known.resetsAt { return }
         }
         record = Record(window: incoming, reportedAt: time)
     }

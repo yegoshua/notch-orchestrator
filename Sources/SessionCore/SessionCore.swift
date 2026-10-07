@@ -69,9 +69,13 @@ public struct Snapshot: Equatable, Sendable {
 public struct Settings: Equatable, Sendable {
     /// How long a session stays live after it finished its turn.
     public var livenessThreshold: TimeInterval
+    /// How long a turn may show no sign of life before it stops counting as working, when no
+    /// process confirms that it is still going.
+    public var unconfirmedWorkTimeout: TimeInterval
 
-    public init(livenessThreshold: TimeInterval = 600) {
+    public init(livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180) {
         self.livenessThreshold = livenessThreshold
+        self.unconfirmedWorkTimeout = unconfirmedWorkTimeout
     }
 }
 
@@ -176,6 +180,8 @@ public struct SessionCore {
                 }
             } else {
                 record.activity = nil
+                // A turn written off as unconfirmed turns out to be going on.
+                if record.state == .unknown { record.enter(.working, at: time) }
                 // Every subagent of the batch has started by now: what is left was never launched.
                 if event.name == "PostToolBatch" { record.pendingAgentTasks = [] }
             }
@@ -268,6 +274,16 @@ public struct SessionCore {
                 record.enter(.unknown, at: tail.at)
             default:
                 break
+            }
+        }
+        // The hooks announced a turn, but no process stands behind it: it counts as working only
+        // while a hook or the transcript has shown life recently.
+        if observation.process != .alive, record.state == .working {
+            var lastSign = record.lastEventAt
+            if let tail = observation.transcript, tail.turn == .inProgress { lastSign = max(lastSign, tail.at) }
+            if time.timeIntervalSince(lastSign) >= settings.unconfirmedWorkTimeout {
+                record.enter(.unknown, at: lastSign)
+                record.activity = nil
             }
         }
         // Only a session with something to show is worth remembering.

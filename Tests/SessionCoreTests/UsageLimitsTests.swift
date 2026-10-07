@@ -130,12 +130,32 @@ private func reading(_ window: LimitWindow) throws -> LimitReading {
         #expect(reading.age == 300)
     }
 
-    @Test func theSameFigureAgainConfirmsTheReading() throws {
+    /// An idle session keeps reporting the figure it saw last, which says nothing new.
+    @Test func aRepeatedFigureDoesNotMakeTheReadingFresh() throws {
         var limits = UsageLimits()
         limits.handle(report(fiveHour: 50), at: now)
         limits.handle(report(fiveHour: 50), at: now.addingTimeInterval(300))
 
-        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(300)).fiveHour).age == 0)
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(300)).fiveHour).age == 300)
+    }
+
+    @Test func aResetTimeThatDiffersBySecondsIsTheSameWindow() throws {
+        var limits = UsageLimits()
+        limits.handle(report(fiveHour: 80), at: now)
+        limits.handle(report(fiveHour: 20, resets: fiveHourReset.addingTimeInterval(1)), at: now.addingTimeInterval(60))
+
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(60)).fiveHour).usedPercentage == 80)
+    }
+
+    @Test func storedLimitsComeBackWithTheirAge() throws {
+        var limits = UsageLimits()
+        limits.handle(report(fiveHour: 50, sevenDay: 3), at: now)
+
+        let restored = try JSONDecoder().decode(UsageLimits.self, from: JSONEncoder().encode(limits))
+
+        let later = now.addingTimeInterval(1200)
+        #expect(restored.snapshot(at: later) == limits.snapshot(at: later))
+        #expect(try reading(restored.snapshot(at: later).fiveHour).isStale)
     }
 
     @Test func aReportForAnEarlierWindowIsIgnored() throws {

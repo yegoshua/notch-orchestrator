@@ -1,7 +1,7 @@
 import Foundation
 
 /// One usage-limit window as Claude Code reports it.
-public struct UsageWindow: Equatable, Sendable {
+public struct UsageWindow: Equatable, Sendable, Codable {
     /// 0 to 100.
     public var usedPercentage: Double
     public var resetsAt: Date

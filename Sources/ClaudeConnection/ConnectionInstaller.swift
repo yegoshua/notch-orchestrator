@@ -37,6 +37,10 @@ public struct ConnectionInstaller: Sendable {
         ClaudeSettings.isInstalled(connection, in: try? read())
     }
 
+    public var forwardsUsageLimits: Bool {
+        ClaudeSettings.forwardsUsageLimits(in: try? read())
+    }
+
     /// Nil only when there is no file. A file that exists but cannot be read is an error:
     /// treating it as absent would overwrite it.
     private func read() throws -> Data? {

@@ -56,6 +56,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         if limits.fiveHour == .noData && limits.sevenDay == .noData {
             lines = ["Usage limits: no data yet", LimitText.noDataExplanation]
         }
+        if model.connectionStatus == .connected && !model.forwardsUsageLimits {
+            lines.append("Usage limits unavailable: the statusLine setting has a form the app cannot wrap")
+        }
         for line in lines {
             menu.addItem(withTitle: line, action: nil, keyEquivalent: "").isEnabled = false
         }

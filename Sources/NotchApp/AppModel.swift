@@ -16,6 +16,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var connectionStatus: ConnectionStatus = .notConnected
     /// Usage limits of the account, as last reported through the status line wrapper.
     @Published private(set) var limits = LimitsSnapshot(fiveHour: .noData, sevenDay: .noData)
+    /// False when the hooks are connected but the status line could not be wrapped, so no usage
+    /// limits will arrive.
+    @Published private(set) var forwardsUsageLimits = true
 
     let config: AppConfig
     private var core: SessionCore
@@ -28,6 +31,11 @@ final class AppModel: ObservableObject {
         self.config = config
         core = SessionCore(settings: Settings(livenessThreshold: TimeInterval(config.livenessMinutes * 60)))
         snapshot = core.snapshot(at: Date())
+        if let stored = try? Data(contentsOf: config.usageLimitsFile),
+           let usage = try? JSONDecoder().decode(UsageLimits.self, from: stored) {
+            self.usage = usage
+            limits = usage.snapshot(at: Date())
+        }
     }
 
     func start() {
@@ -104,12 +112,22 @@ final class AppModel: ObservableObject {
         guard let report = UsageReport(statusLinePayload: payload) else { return }
         usage.handle(report, at: Date())
         refreshLimits()
+        storeLimits()
     }
 
     /// Also run on the timer: readings age, go stale and expire without any payload arriving.
     private func refreshLimits() {
         let next = usage.snapshot(at: Date())
         if next != limits { limits = next }
+    }
+
+    /// The last known figures outlive the app, so a restart does not empty the ring. They are
+    /// percentages and reset times of the account, nothing about any project.
+    private func storeLimits() {
+        guard let data = try? JSONEncoder().encode(usage) else { return }
+        try? FileManager.default.createDirectory(at: config.supportDirectory, withIntermediateDirectories: true)
+        try? data.write(to: config.usageLimitsFile, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.usageLimitsFile.path)
     }
 
     private func perform(_ change: () throws -> Void) {
@@ -127,6 +145,7 @@ final class AppModel: ObservableObject {
             return
         }
         connectionStatus = config.installer.isInstalled(config.connection) ? .connected : .notConnected
+        forwardsUsageLimits = config.installer.forwardsUsageLimits
     }
 
     private static func describe(_ error: Error) -> String {

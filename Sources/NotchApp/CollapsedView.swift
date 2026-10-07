@@ -23,16 +23,17 @@ struct CollapsedView: View {
                     .frame(maxHeight: .infinity)
                     .background(UnevenRoundedRectangle(bottomLeadingRadius: 10).fill(.black))
                     .opacity(isVisible ? 1 : 0)
-                    rightEar
+                    rightEar.opacity(showsRing ? 1 : 0)
                 }
             } else {
                 HStack(spacing: 10) {
                     if isVisible { countersRow }
-                    ring
+                    if showsRing { ring }
                 }
                 .padding(.horizontal, 12)
                 .frame(maxHeight: .infinity)
                 .background(Capsule().fill(.black))
+                .opacity(isVisible || showsRing ? 1 : 0)
                 .padding(.vertical, 2)
                 .frame(maxWidth: .infinity)
             }
@@ -44,7 +45,11 @@ struct CollapsedView: View {
 
     private var ring: some View { LimitRing(window: model.limits.fiveHour) }
 
-    /// Always drawn, also with no live sessions.
+    /// Without a connection no figure can arrive, and after "Remove Completely" nothing of the
+    /// app should be left on screen.
+    private var showsRing: Bool { model.connectionStatus != .notConnected }
+
+    /// Drawn also with no live sessions.
     private var rightEar: some View {
         ring
             .padding(.horizontal, 8)
