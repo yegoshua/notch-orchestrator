@@ -53,7 +53,8 @@ final class TransientLineController {
         let content = AnyView(IslandSurface(
             model: model, stage: stage, presence: presence, geometry: geometry, width: width, maxHeight: Island.maxHeight
         ) {
-            TransientLineView(line: line)
+            // A new line each time, so that its mark is drawn anew.
+            TransientLineView(line: line).id(UUID())
         })
         if let hosting = panel.contentView as? NSHostingView<AnyView> {
             hosting.rootView = content
@@ -122,7 +123,10 @@ private struct TransientLineView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            StateMark(state: isFailure ? .failed : .finishedTurn).frame(width: 14)
+            Group {
+                if isFailure { StateMark(state: .failed) } else { DrawnCheck() }
+            }
+            .frame(width: 14)
             Text(line.title ?? line.project ?? "Untitled session")
                 .font(Island.bodyMedium)
                 .foregroundStyle(Island.text)
@@ -140,5 +144,52 @@ private struct TransientLineView: View {
         .padding(.horizontal, Island.openPadding)
         .frame(height: Island.lineHeight)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The mark of something that ended well, drawn as the line appears: the check is written in
+/// one stroke while a soft ring spreads from it and fades. Still for those who asked for less motion.
+private struct DrawnCheck: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The ring is in place, about to spread.
+    @State private var isPrimed = false
+    @State private var isDrawn = false
+
+    /// When the line's content has come into view.
+    private static let delay = Island.contentDelay + 0.12
+
+    var body: some View {
+        let isDrawn = isDrawn || reduceMotion
+        Check()
+            .trim(from: 0, to: isDrawn ? 1 : 0)
+            .stroke(Island.finished, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            .frame(width: 9, height: 8)
+            .scaleEffect(isDrawn ? 1 : 0.7)
+            .background {
+                Circle()
+                    .stroke(Island.finished, lineWidth: 1)
+                    .frame(width: 10, height: 10)
+                    .scaleEffect(isDrawn ? 2.4 : 0.5)
+                    .opacity(isPrimed && !isDrawn ? 0.7 : 0)
+            }
+            .task {
+                guard !reduceMotion else { return }
+                try? await Task.sleep(for: .seconds(Self.delay))
+                isPrimed = true
+                // A frame with the ring in place, for it to spread from.
+                try? await Task.sleep(for: .milliseconds(20))
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.62)) { self.isDrawn = true }
+            }
+    }
+
+    /// The check of `StateMark`, as one stroke from its short arm to its long one.
+    private struct Check: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX + 0.11 * rect.width, y: rect.minY + 0.525 * rect.height))
+            path.addLine(to: CGPoint(x: rect.minX + 0.38 * rect.width, y: rect.minY + 0.81 * rect.height))
+            path.addLine(to: CGPoint(x: rect.minX + 0.89 * rect.width, y: rect.minY + 0.19 * rect.height))
+            return path
+        }
     }
 }

@@ -159,8 +159,10 @@ final class AppModel: ObservableObject {
     }
 
     /// Does what the core decided since the last time. Several sounds at once are one sound.
+    /// A turn that finished well and has no sound of its own gets the quiet chime of its line.
     private func interrupt() {
         var sounds = false
+        var chimes = false
         for interruption in core.drainInterruptions() {
             switch interruption {
             case .expand(_, let sound):
@@ -169,9 +171,14 @@ final class AppModel: ObservableObject {
             case .line(let line, let sound):
                 lines.send(line)
                 sounds = sounds || sound
+                chimes = chimes || line.kind == .finished
             }
         }
-        if sounds { InterruptionSound.play() }
+        if sounds {
+            InterruptionSound.play()
+        } else if chimes {
+            FinishChime.play()
+        }
     }
 
     /// Switching tabs inside an application is not announced by the system. While a request
