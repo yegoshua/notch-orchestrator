@@ -14,9 +14,12 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var snapshot: Snapshot
     @Published private(set) var connectionStatus: ConnectionStatus = .notConnected
+    /// Usage limits of the account, as last reported through the status line wrapper.
+    @Published private(set) var limits = LimitsSnapshot(fiveHour: .noData, sevenDay: .noData)
 
     let config: AppConfig
     private var core: SessionCore
+    private var usage = UsageLimits()
     private var receiver: HookReceiver?
     private var receiverFailure: String?
     private var timer: Timer?
@@ -30,7 +33,10 @@ final class AppModel: ObservableObject {
     func start() {
         do {
             let connection = config.connection
-            let receiver = try HookReceiver(port: connection.port, token: try config.token()) { [weak self] payload in
+            let receiver = try HookReceiver(
+                port: connection.port, token: try config.token(),
+                onStatusLine: { [weak self] payload in self?.receiveStatusLine(payload) }
+            ) { [weak self] payload in
                 self?.receive(payload)
             }
             receiver.start { [weak self] error in
@@ -47,7 +53,10 @@ final class AppModel: ObservableObject {
         }
         // Finished sessions age out without any event arriving.
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshSnapshot() }
+            Task { @MainActor in
+                self?.refreshSnapshot()
+                self?.refreshLimits()
+            }
         }
     }
 
@@ -84,6 +93,22 @@ final class AppModel: ObservableObject {
     private func refreshSnapshot() {
         let next = core.snapshot(at: Date())
         if next != snapshot { snapshot = next }
+    }
+
+    // MARK: Usage limits
+
+    /// Limits are account-wide, so a payload from any session counts. A payload without limit data
+    /// (before the first response, or an account without limits) changes nothing.
+    private func receiveStatusLine(_ payload: Data) {
+        guard let report = UsageReport(statusLinePayload: payload) else { return }
+        usage.handle(report, at: Date())
+        refreshLimits()
+    }
+
+    /// Also run on the timer: readings age, go stale and expire without any payload arriving.
+    private func refreshLimits() {
+        let next = usage.snapshot(at: Date())
+        if next != limits { limits = next }
     }
 
     private func perform(_ change: () throws -> Void) {
