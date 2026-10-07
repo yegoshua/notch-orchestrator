@@ -1,12 +1,27 @@
 import AppKit
 
-/// The sound of a turn that finished well: a short call on a wind instrument of the orchestra,
-/// two notes rising a fifth. Quiet on purpose, and made here rather than taken from the system's
-/// alert sounds, which are meant to be noticed.
+/// The sound of a turn that finished well. Quiet on purpose, and made here rather than taken from
+/// the system's alert sounds, which are meant to be noticed: a fraction of a second that can be
+/// missed, or a short call on a wind instrument of the orchestra.
 @MainActor
 enum FinishSound {
-    /// The instrument that plays the call.
+    /// What it sounds like. The first ones are over almost before they are heard; the
+    /// instruments play a call of two notes rising a fifth.
     enum Voice: String, CaseIterable {
+        /// A drop of water: one note that slides up as it dies away.
+        case drop = "Drop"
+        /// A muted knock, low and dull.
+        case tap = "Tap"
+        /// The click of two small things touching.
+        case tick = "Tick"
+        /// A puff of air and no note at all.
+        case breath = "Breath"
+        /// One soft note, as struck on wood.
+        case pluck = "Pluck"
+        /// One high note, very faint.
+        case glint = "Glint"
+        /// Two tiny notes, the second higher.
+        case pips = "Pips"
         case flute = "Flute"
         case clarinet = "Clarinet"
         case horn = "Horn"
@@ -17,6 +32,7 @@ enum FinishSound {
             case .flute: (587.33, 880.00)
             case .clarinet: (440.00, 659.26)
             case .horn: (349.23, 523.25)
+            default: (0, 0)
             }
         }
 
@@ -27,6 +43,7 @@ enum FinishSound {
             case .flute: [1, 0.32, 0.10, 0.04]
             case .clarinet: [1, 0.03, 0.46, 0.02, 0.20, 0.02, 0.09]
             case .horn: [1, 0.62, 0.40, 0.24, 0.13, 0.07]
+            default: []
             }
         }
 
@@ -35,7 +52,7 @@ enum FinishSound {
             switch self {
             case .flute: 0.055
             case .clarinet: 0.04
-            case .horn: 0.07
+            default: 0.07
             }
         }
 
@@ -44,7 +61,16 @@ enum FinishSound {
             switch self {
             case .flute: 0.05
             case .clarinet: 0.015
-            case .horn: 0.01
+            default: 0.01
+            }
+        }
+
+        /// How loud it is at its loudest, of what the format holds.
+        fileprivate var level: Double {
+            switch self {
+            case .flute, .clarinet, .horn: 0.32
+            case .glint, .tick: 0.16
+            case .drop, .tap, .breath, .pluck, .pips: 0.24
             }
         }
     }
@@ -59,7 +85,7 @@ enum FinishSound {
     /// Nil when a finished turn makes no sound.
     static var current: Voice? {
         get {
-            guard let stored = UserDefaults.standard.string(forKey: key) else { return .flute }
+            guard let stored = UserDefaults.standard.string(forKey: key) else { return .drop }
             return Voice(rawValue: stored)
         }
         set { UserDefaults.standard.set(newValue?.rawValue ?? "", forKey: key) }
@@ -76,9 +102,67 @@ enum FinishSound {
         }
     }
 
+    static func samples(_ voice: Voice) -> [Int16] {
+        var noise = Noise()
+        let tau = 2 * Double.pi
+        /// A note that speaks within `attack` seconds and dies away at the pace of `decay`.
+        func struck(_ age: Double, attack: Double, decay: Double) -> Double {
+            age < 0 ? 0 : min(1, age / attack) * exp(-age / decay)
+        }
+        /// The phase of a note that slides from one pitch to another at the pace of `pace`.
+        func slide(_ age: Double, from: Double, to: Double, pace: Double) -> Double {
+            tau * (to * age - (to - from) * pace * (1 - exp(-age / pace)))
+        }
+        var values: [Double]
+        switch voice {
+        case .flute, .clarinet, .horn:
+            values = call(voice)
+        case .drop:
+            values = render(0.18) { time in
+                sin(slide(time, from: 520, to: 980, pace: 0.025)) * struck(time, attack: 0.004, decay: 0.045)
+            }
+        case .tap:
+            values = render(0.14) { time in
+                sin(slide(time, from: 230, to: 140, pace: 0.03)) * struck(time, attack: 0.002, decay: 0.035)
+                    + 0.12 * noise.next() * exp(-time / 0.004)
+            }
+        case .tick:
+            values = render(0.05) { time in
+                sin(tau * 2100 * time) * struck(time, attack: 0.001, decay: 0.008)
+                    + 0.4 * sin(tau * 3300 * time) * struck(time, attack: 0.001, decay: 0.005)
+            }
+        case .breath:
+            values = render(0.16) { time in noise.next() * pow(sin(.pi * time / 0.16), 2) }
+        case .pluck:
+            values = render(0.26) { time in
+                (sin(tau * 784 * time) + 0.25 * sin(tau * 3136 * time) * exp(-time / 0.02))
+                    * struck(time, attack: 0.003, decay: 0.06)
+            }
+        case .glint:
+            values = render(0.3) { time in
+                (sin(tau * 1318.5 * time) + 0.1 * sin(tau * 2637 * time)) * struck(time, attack: 0.005, decay: 0.07)
+            }
+        case .pips:
+            values = render(0.2) { time in
+                sin(tau * 659.26 * time) * struck(time, attack: 0.004, decay: 0.03)
+                    + sin(tau * 987.77 * (time - 0.075)) * struck(time - 0.075, attack: 0.004, decay: 0.03)
+            }
+        }
+        let peak = values.map(abs).max() ?? 1
+        return values.enumerated().map { index, value in
+            // Out to nothing by the end, so that the cut is not heard.
+            let tail = min(1, Double(values.count - index) / (0.01 * sampleRate))
+            return Int16(value / max(peak, 0.001) * voice.level * tail * Double(Int16.max))
+        }
+    }
+
+    private static func render(_ duration: Double, _ value: (Double) -> Double) -> [Double] {
+        (0..<Int(duration * sampleRate)).map { value(Double($0) / sampleRate) }
+    }
+
     /// A short first note, then the fifth above it, held and let go. The second speaks before
     /// the first has gone, as when both are played in one breath.
-    static func samples(_ voice: Voice) -> [Int16] {
+    private static func call(_ voice: Voice) -> [Double] {
         let notes = [
             (frequency: voice.notes.0, start: 0.0, length: 0.20, level: 0.8),
             (frequency: voice.notes.1, start: 0.17, length: 0.52, level: 1.0),
@@ -86,8 +170,7 @@ enum FinishSound {
         let release = 0.22
         let duration = 0.17 + 0.52 + release + 0.02
         var noise = Noise()
-        var values = (0..<Int(duration * sampleRate)).map { index -> Double in
-            let time = Double(index) / sampleRate
+        return render(duration) { time in
             let air = noise.next()
             var value = 0.0
             for note in notes where time >= note.start && time < note.start + note.length + release {
@@ -109,9 +192,6 @@ enum FinishSound {
             }
             return value
         }
-        let peak = values.map(abs).max() ?? 1
-        values = values.map { $0 / max(peak, 0.001) * 0.32 }
-        return values.map { Int16($0 * Double(Int16.max)) }
     }
 
     /// Air: noise with its hiss taken off. The same every time, so the sound is too.
