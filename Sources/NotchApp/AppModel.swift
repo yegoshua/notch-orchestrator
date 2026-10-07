@@ -121,7 +121,7 @@ final class AppModel: ObservableObject {
     private func receive(_ payload: Data) {
         guard let event = HookEvent(payload: payload) else { return }
         // The end of a turn is told to the user or not by where they are looking right now.
-        if event.name == "Stop" || event.name == "StopFailure" { lookAround() }
+        if event.name == "Stop" || event.name == "StopFailure" { lookAround(forSession: true) }
         core.handle(event, at: Date())
         refreshSnapshot()
     }
@@ -141,9 +141,10 @@ final class AppModel: ObservableObject {
     private var frontWindowTimer: Timer?
 
     /// Tells the core what the user is looking at and whether a Focus is on. Which tab Terminal
-    /// shows is asked only while a session runs in Terminal.
-    private func lookAround() {
-        let inTerminal = snapshot.sessions.contains { $0.location.bundleID == SessionLocation.terminalBundleID }
+    /// shows is asked when a session has news, and otherwise only while one runs in Terminal.
+    private func lookAround(forSession: Bool = false) {
+        let inTerminal = forSession
+            || snapshot.sessions.contains { $0.location.bundleID == SessionLocation.terminalBundleID }
         core.attend(attentionMonitor.attention(readingTerminalTab: inTerminal), at: Date())
     }
 
@@ -186,7 +187,7 @@ final class AppModel: ObservableObject {
             held.respond(with: Data())
             return
         }
-        lookAround()
+        lookAround(forSession: true)
         let id = UUID().uuidString
         heldRequests[id] = held
         held.onClientGone = { [weak self] in

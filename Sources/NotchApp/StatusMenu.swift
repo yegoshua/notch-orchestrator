@@ -84,7 +84,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         interruptions.submenu!.addItem(.separator())
         let focus = model.attentionMonitor.canReadFocus
             ? "A Focus silences every mode"
-            : "Focus cannot be seen: allow Full Disk Access to have it respected"
+            : "Focus cannot be read, so it is not respected (needs Full Disk Access)"
         interruptions.submenu!.addItem(withTitle: focus, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(interruptions)
 

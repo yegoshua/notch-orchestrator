@@ -145,6 +145,19 @@ private func raised(_ core: SessionCore, at time: Date = t + 2) -> [String] {
         #expect(raised(core, at: t + 5) == ["r1"])
     }
 
+    @Test func leavingASessionThatWasOnlyAssumedToBeInFrontStillMakesItsSound() {
+        var core = core(.smart)
+        work(&core, in: .desktopApp(sessionID: "local_1"))
+        look(&core, at: claude)
+        ask(&core, "r1")
+        #expect(core.drainInterruptions().isEmpty)
+
+        look(&core, at: browser, time: t + 5)
+
+        // The user may have been in another window of the app and never seen the dialog.
+        #expect(core.drainInterruptions() == [.expand(requestID: "r1", sound: true)])
+    }
+
     @Test func comingToTheAskingSessionTakesItsRequestDownAndASoundIsMadeOnlyOnce() {
         var core = core(.smart)
         work(&core)

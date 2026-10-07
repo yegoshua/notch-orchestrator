@@ -28,7 +28,7 @@ final class AttentionMonitor {
         }
     }
 
-    /// False when the system keeps its Focus record from this app, so no Focus is ever seen.
+    /// False when the Focus record cannot be read or understood, so no Focus is ever seen.
     var canReadFocus: Bool { focus.isReadable }
 
     /// `readingTerminalTab` asks Terminal which tab is selected when Terminal is in front. It

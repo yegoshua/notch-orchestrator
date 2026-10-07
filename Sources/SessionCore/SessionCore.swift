@@ -191,8 +191,8 @@ public struct SessionCore {
         var handedBackAt: Date?
         /// Put before the user by the island itself.
         var isRaised = false
-        /// Its session has been in front since it asked, so the user has seen its own dialog.
-        var wasInFront = false
+        /// Its session has been seen in front since it asked, so the user has seen its own dialog.
+        var wasSeenInFront = false
         /// A sound has been made for it. There is never a second one.
         var wasAnnounced = false
     }
@@ -487,14 +487,33 @@ public struct SessionCore {
         attention.focusIsOn ? .quiet : settings.interruptionMode
     }
 
+    private enum Frontness {
+        case notInFront
+        /// Its application is in front and no other session runs there, so it is taken to be the
+        /// one the user looks at. They may as well be in another window of that application.
+        case assumed
+        /// Terminal said that the session's tab is the one in front.
+        case seen
+    }
+
     /// Whether the user is looking at the session. Only Terminal says which of its tabs is in
-    /// front; of any other application, and of Terminal when it does not say, only the session
-    /// that is alone there is known to be the one in front.
-    private func isInFront(_ record: Record) -> Bool {
+    /// front; of any other application, and of Terminal when it does not say, that can only be
+    /// assumed, and only of a session that is alone there.
+    private func frontness(of record: Record) -> Frontness {
         guard let front = attention.frontWindow, let bundleID = record.location.bundleID, bundleID == front.bundleID
-        else { return false }
-        if case .terminalApp(let tty) = record.location, let frontTTY = front.terminalTTY { return tty == frontTTY }
-        return !records.values.contains { $0.id != record.id && $0.state != nil && $0.location.bundleID == bundleID }
+        else { return .notInFront }
+        if case .terminalApp(let tty) = record.location, let frontTTY = front.terminalTTY {
+            return tty == frontTTY ? .seen : .notInFront
+        }
+        let isAlone = !records.values.contains {
+            $0.id != record.id && $0.state != nil && $0.location.bundleID == bundleID
+        }
+        return isAlone ? .assumed : .notInFront
+    }
+
+    /// Whether something about a session interrupts the user in `mode`.
+    private static func interrupts(in mode: InterruptionMode, _ frontness: Frontness) -> Bool {
+        mode == .loud || (mode == .smart && frontness == .notInFront)
     }
 
     /// Decides anew which requests the island puts before the user. Run after every input: a
@@ -503,14 +522,15 @@ public struct SessionCore {
         let mode = mode
         var raised: [(order: Int, interruption: Interruption)] = []
         for (id, var record) in records where !record.requests.isEmpty {
-            let inFront = isInFront(record)
+            let frontness = frontness(of: record)
             for index in record.requests.indices where record.requests[index].handedBackAt == nil {
                 var request = record.requests[index]
-                request.wasInFront = request.wasInFront || inFront
-                let raise = mode == .loud || (mode == .smart && !inFront)
+                request.wasSeenInFront = request.wasSeenInFront || frontness == .seen
+                let raise = Self.interrupts(in: mode, frontness)
                 if raise, !request.isRaised {
                     // Coming up again, or after the user saw the session's own dialog, is no news.
-                    let sound = !request.wasAnnounced && (mode == .loud || !request.wasInFront)
+                    // A session only assumed to be in front may never have shown it to them.
+                    let sound = !request.wasAnnounced && (mode == .loud || !request.wasSeenInFront)
                     request.wasAnnounced = request.wasAnnounced || sound
                     raised.append((request.order, .expand(requestID: request.id, sound: sound)))
                 }
@@ -526,7 +546,7 @@ public struct SessionCore {
     private mutating func announceTurnEnd(of record: Record) {
         guard record.state == .finishedTurn || record.state == .failed else { return }
         let mode = mode
-        guard mode == .loud || (mode == .smart && !isInFront(record)) else { return }
+        guard Self.interrupts(in: mode, frontness(of: record)) else { return }
         let line = TransientLine(
             sessionID: record.id, title: Self.title(record), project: Self.project(record),
             kind: record.state == .failed ? .failed : .finished)

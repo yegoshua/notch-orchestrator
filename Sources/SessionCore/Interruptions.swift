@@ -1,7 +1,7 @@
 import Foundation
 
 /// How readily the island interrupts the user.
-public enum InterruptionMode: String, Equatable, Sendable, CaseIterable {
+public enum InterruptionMode: String, Equatable, Sendable {
     /// Every request expands with a sound and every finished turn shows its line with a sound,
     /// also when the session is in front.
     case loud
