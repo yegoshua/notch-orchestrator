@@ -38,11 +38,13 @@ public struct Observation: Equatable, Sendable {
     public var transcriptPath: String?
     /// Where the session runs; `unknown` when this look could not tell.
     public var location: SessionLocation
+    /// How many tokens the transcript shows in the session's context; nil when it does not say.
+    public var contextTokens: Int?
 
     public init(
         sessionID: String, process: Process, transcript: TranscriptTail? = nil,
         cwd: String? = nil, title: String? = nil, transcriptPath: String? = nil,
-        location: SessionLocation = .unknown
+        location: SessionLocation = .unknown, contextTokens: Int? = nil
     ) {
         self.sessionID = sessionID
         self.process = process
@@ -51,5 +53,6 @@ public struct Observation: Equatable, Sendable {
         self.title = title
         self.transcriptPath = transcriptPath
         self.location = location
+        self.contextTokens = contextTokens
     }
 }

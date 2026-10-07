@@ -153,3 +153,60 @@ import SessionCore
         #expect(session.title == nil)
     }
 }
+
+@Suite struct ContextOfASession {
+    private static let t = Date(timeIntervalSince1970: 1_000)
+
+    private func working() -> SessionCore {
+        var core = SessionCore()
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s", cwd: "/work/project"), at: Self.t)
+        return core
+    }
+
+    @Test func nothingIsKnownAboutItAtFirst() {
+        #expect(working().snapshot(at: Self.t).sessions.first?.context == nil)
+    }
+
+    @Test func theTranscriptGivesItsTokens() {
+        var core = working()
+        core.reconcile(Observation(sessionID: "s", process: .alive, contextTokens: 266_236), observedAt: Self.t)
+        // A look that could not read the transcript takes nothing away.
+        core.reconcile(Observation(sessionID: "s", process: .alive), observedAt: Self.t + 5)
+
+        #expect(core.snapshot(at: Self.t + 5).sessions.first?.context == ContextUsage(tokens: 266_236))
+    }
+
+    @Test func theStatusLineGivesItsShareOfTheWindow() throws {
+        var core = working()
+        let payload = #"{"session_id": "s", "context_window": {"context_window_size": 200000, "used_percentage": 27.4}}"#
+        core.handle(try #require(ContextReport(statusLinePayload: Data(payload.utf8))))
+        core.reconcile(Observation(sessionID: "s", process: .alive, contextTokens: 54_800), observedAt: Self.t)
+
+        #expect(core.snapshot(at: Self.t).sessions.first?.context == ContextUsage(tokens: 54_800, usedPercentage: 27.4))
+    }
+
+    @Test(arguments: [
+        #"{"session_id": "s"}"#, #"{"session_id": "s", "context_window": {"used_percentage": null}}"#,
+        #"{"context_window": {"used_percentage": 12}}"#, "not json",
+    ])
+    func aPayloadThatDoesNotSayIsNoReport(payload: String) {
+        #expect(ContextReport(statusLinePayload: Data(payload.utf8)) == nil)
+    }
+
+    @Test func aReportAboutASessionNobodyTracksMakesNoSession() {
+        var core = SessionCore()
+        core.handle(ContextReport(sessionID: "ghost", usedPercentage: 50))
+
+        #expect(core.snapshot(at: Self.t).sessions.isEmpty)
+    }
+
+    @Test func aCompactionForgetsWhatWasKnown() {
+        var core = working()
+        core.reconcile(Observation(sessionID: "s", process: .alive, contextTokens: 180_000), observedAt: Self.t)
+        core.handle(ContextReport(sessionID: "s", usedPercentage: 90))
+
+        core.handle(HookEvent(name: "PostCompact", sessionID: "s"), at: Self.t + 60)
+
+        #expect(core.snapshot(at: Self.t + 60).sessions.first?.context == nil)
+    }
+}

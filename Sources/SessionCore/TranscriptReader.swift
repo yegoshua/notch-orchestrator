@@ -54,6 +54,28 @@ public enum TranscriptReader {
         return nil
     }
 
+    /// How many tokens the session's context held at its last response, if `text` says: what the
+    /// model was sent then, cached or not. After a compaction it is what the compaction left.
+    public static func contextTokens(in text: String) -> Int? {
+        for line in text.split(whereSeparator: \.isNewline).reversed()
+        where line.contains("\"usage\"") || line.contains("\"compact_boundary\"") {
+            guard let entry = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  entry["isSidechain"] as? Bool != true
+            else { continue }
+            if entry["type"] as? String == "system", entry["subtype"] as? String == "compact_boundary" {
+                return (entry["compactMetadata"] as? [String: Any])?["postTokens"] as? Int
+            }
+            guard entry["type"] as? String == "assistant",
+                  let usage = (entry["message"] as? [String: Any])?["usage"] as? [String: Any]
+            else { continue }
+            let tokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+                .reduce(0) { $0 + (usage[$1] as? Int ?? 0) }
+            // A message Claude Code wrote itself went through no model and counts nothing.
+            if tokens > 0 { return tokens }
+        }
+        return nil
+    }
+
     /// The most recent title Claude Code gave the session, if `text` holds one.
     public static func title(in text: String) -> String? {
         for line in text.split(whereSeparator: \.isNewline).reversed() where line.contains("\"ai-title\"") {

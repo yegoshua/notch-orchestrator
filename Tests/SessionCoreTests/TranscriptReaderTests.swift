@@ -105,3 +105,29 @@ private let ended = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         #expect(TranscriptReader.title(in: Entry.prompt) == nil)
     }
 }
+
+@Suite struct ContextInATranscript {
+    private static let response = #"{"type":"assistant","timestamp":"2026-10-07T13:12:08.963Z","message":{"role":"assistant","stop_reason":"tool_use","usage":{"input_tokens":2,"cache_creation_input_tokens":282,"cache_read_input_tokens":265952,"output_tokens":437}}}"#
+    private static let earlier = #"{"type":"assistant","timestamp":"2026-10-07T13:11:08.963Z","message":{"role":"assistant","usage":{"input_tokens":10,"cache_read_input_tokens":90,"output_tokens":5000}}}"#
+    private static let subagent = #"{"type":"assistant","isSidechain":true,"timestamp":"2026-10-07T13:13:00.000Z","message":{"role":"assistant","usage":{"input_tokens":7,"output_tokens":1}}}"#
+    private static let synthetic = #"{"type":"assistant","timestamp":"2026-10-07T13:13:30.000Z","message":{"role":"assistant","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}"#
+    private static let compacted = #"{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-07T13:14:30.690Z","compactMetadata":{"trigger":"manual","preTokens":55094,"postTokens":6811}}"#
+    private static let compactedSilently = #"{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-07T13:14:30.690Z"}"#
+
+    @Test func theContextIsWhatTheLastResponseWasSent() {
+        let text = [Self.earlier, Self.response, Self.subagent, Self.synthetic].joined(separator: "\n")
+
+        #expect(TranscriptReader.contextTokens(in: text) == 266_236)
+    }
+
+    @Test func afterACompactionItIsWhatTheCompactionLeft() {
+        #expect(TranscriptReader.contextTokens(in: [Self.response, Self.compacted].joined(separator: "\n")) == 6811)
+        #expect(TranscriptReader.contextTokens(in: [Self.response, Self.compactedSilently].joined(separator: "\n")) == nil)
+        #expect(TranscriptReader.contextTokens(in: [Self.compacted, Self.earlier].joined(separator: "\n")) == 100)
+    }
+
+    @Test func aTranscriptWithoutAResponseSaysNothing() {
+        #expect(TranscriptReader.contextTokens(in: "") == nil)
+        #expect(TranscriptReader.contextTokens(in: [Self.subagent, Self.synthetic, #"{"usage" not json"#].joined(separator: "\n")) == nil)
+    }
+}

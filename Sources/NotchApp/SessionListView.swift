@@ -237,8 +237,15 @@ private struct SessionRow: View {
     }
 
     private var meta: String {
-        [session.title == nil ? nil : session.project, session.location.originLabel]
+        [session.title == nil ? nil : session.project, session.location.originLabel, context]
             .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// How full the context is: a share of the window where it is known, else the tokens in it.
+    private var context: String? {
+        if let used = session.context?.usedPercentage { return "\(LimitText.percent(used))% context" }
+        guard let tokens = session.context?.tokens else { return nil }
+        return tokens < 1000 ? "\(tokens) tokens" : "\(Int((Double(tokens) / 1000).rounded()))k tokens"
     }
 
     private var activity: String {

@@ -224,6 +224,10 @@ final class AppModel: ObservableObject {
     /// Limits are account-wide, so a payload from any session counts. A payload without limit data
     /// (before the first response, or an account without limits) changes nothing.
     private func receiveStatusLine(_ payload: Data) {
+        if let context = ContextReport(statusLinePayload: payload) {
+            core.handle(context)
+            refreshSnapshot()
+        }
         guard let report = UsageReport(statusLinePayload: payload) else { return }
         usage.handle(report, at: Date())
         refreshLimits()

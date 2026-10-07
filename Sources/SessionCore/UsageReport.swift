@@ -49,6 +49,28 @@ public struct UsageReport: Equatable, Sendable {
     }
 }
 
+/// How full a session's context window is, taken from the JSON Claude Code feeds its status line.
+/// Only there is the size of the window known, so only there is a share of it.
+public struct ContextReport: Equatable, Sendable {
+    public var sessionID: String
+    /// 0 to 100.
+    public var usedPercentage: Double
+
+    public init(sessionID: String, usedPercentage: Double) {
+        self.sessionID = sessionID
+        self.usedPercentage = usedPercentage
+    }
+
+    /// Nil when the payload does not say: before the first response the figure is absent.
+    public init?(statusLinePayload: Data) {
+        guard let root = try? JSONSerialization.jsonObject(with: statusLinePayload) as? [String: Any],
+              let sessionID = root["session_id"] as? String,
+              let used = UsageReport.number((root["context_window"] as? [String: Any])?["used_percentage"])
+        else { return nil }
+        self.init(sessionID: sessionID, usedPercentage: min(max(used, 0), 100))
+    }
+}
+
 /// What the Claude desktop app last measured of the account's usage, taken from the history it
 /// keeps in `plan-usage-history.json`. Desktop sessions run no status line, so for them this is
 /// the only source. The format is undocumented: whole percentages under `fh` and `sd`, with the

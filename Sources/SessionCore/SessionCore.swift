@@ -37,6 +37,20 @@ public struct Subagent: Equatable, Sendable {
     public var activity: String?
 }
 
+/// How full a session's context is, as far as it is known.
+public struct ContextUsage: Equatable, Sendable {
+    /// What the last response was sent, counted from the transcript.
+    public var tokens: Int?
+    /// The share of the window, 0 to 100. Known only for sessions that run a status line: nothing
+    /// else says how large the window is.
+    public var usedPercentage: Double?
+
+    public init(tokens: Int? = nil, usedPercentage: Double? = nil) {
+        self.tokens = tokens
+        self.usedPercentage = usedPercentage
+    }
+}
+
 public struct Session: Equatable, Sendable {
     public var id: String
     public var state: SessionState
@@ -50,6 +64,8 @@ public struct Session: Equatable, Sendable {
     public var subagents: [Subagent]
     /// Where the session runs, as far as reconciliation found out.
     public var location: SessionLocation = .unknown
+    /// Nil while nothing is known about it.
+    public var context: ContextUsage?
 
     public var origin: SessionOrigin { location.origin }
     public var project: String? { cwd.map { ($0 as NSString).lastPathComponent } }
@@ -135,6 +151,7 @@ public struct SessionCore {
         var firstPrompt: String?
         var observedTitle: String?
         var location = SessionLocation.unknown
+        var context = ContextUsage()
         var activity: String?
         var subagents: [Subagent] = []
         /// Tasks of `Agent` calls whose subagent has not reported its start yet, oldest first.
@@ -296,6 +313,8 @@ public struct SessionCore {
             record.activity = Self.compacting
         case "PostCompact":
             if record.activity == Self.compacting { record.activity = nil }
+            // What was known describes the context before it was rewritten.
+            record.context = ContextUsage()
         case "Stop":
             // Background subagents hand their result back as a new prompt, so the turn is not over yet.
             // Background commands may run forever (a dev server) and do not count.
@@ -467,6 +486,12 @@ public struct SessionCore {
             .map { Resolution(requestID: $0.id, outcome: .noDecision) }
     }
 
+    /// Takes in how full a session's context window is. A session the core does not track is
+    /// not made up from it.
+    public mutating func handle(_ report: ContextReport) {
+        records[report.sessionID]?.context.usedPercentage = report.usedPercentage
+    }
+
     // MARK: Interruptions
 
     /// Takes in what the user is looking at and whether a Focus is on.
@@ -575,6 +600,7 @@ public struct SessionCore {
         record.observedTitle = observation.title ?? record.observedTitle
         // A look that found nothing says nothing about where the session runs.
         if observation.location != .unknown { record.location = observation.location }
+        if let tokens = observation.contextTokens { record.context.tokens = tokens }
 
         if let tail = observation.transcript {
             // Without a process behind it, a turn in progress is a guess.
@@ -666,7 +692,8 @@ public struct SessionCore {
                 return Session(
                     id: record.id, state: state, since: record.since, cwd: record.cwd,
                     title: Self.title(record), activity: record.activity,
-                    subagents: record.subagents, location: record.location)
+                    subagents: record.subagents, location: record.location,
+                    context: record.context == ContextUsage() ? nil : record.context)
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
         return Snapshot(
