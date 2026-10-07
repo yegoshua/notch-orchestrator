@@ -29,7 +29,8 @@ final class AppModel: ObservableObject {
 
     init(config: AppConfig) {
         self.config = config
-        core = SessionCore(settings: Settings(livenessThreshold: TimeInterval(config.livenessMinutes * 60)))
+        core = SessionCore(settings: Settings(
+            livenessThreshold: TimeInterval(config.livenessMinutes * 60), requestTimeout: config.requestTimeout))
         snapshot = core.snapshot(at: Date())
         if let stored = try? Data(contentsOf: config.usageLimitsFile),
            let usage = try? JSONDecoder().decode(UsageLimits.self, from: stored) {
@@ -43,7 +44,11 @@ final class AppModel: ObservableObject {
             let connection = config.connection
             let receiver = try HookReceiver(
                 port: connection.port, token: try config.token(),
-                onStatusLine: { [weak self] payload in self?.receiveStatusLine(payload) }
+                onStatusLine: { [weak self] payload in self?.receiveStatusLine(payload) },
+                onPermissionRequest: { [weak self] payload, held in
+                    guard let self else { return held.respond(with: Data()) }
+                    self.receiveRequest(payload, held)
+                }
             ) { [weak self] payload in
                 self?.receive(payload)
             }
@@ -99,9 +104,48 @@ final class AppModel: ObservableObject {
         refreshSnapshot()
     }
 
+    /// Run after every input and on the timer: it is also what answers the held connections.
     private func refreshSnapshot() {
+        deliverResolutions()
         let next = core.snapshot(at: Date())
         if next != snapshot { snapshot = next }
+    }
+
+    // MARK: Requests to the user
+
+    /// The open hook connections of the requests in the core, by the identifier given to each.
+    private var heldRequests: [String: HeldRequest] = [:]
+
+    private func receiveRequest(_ payload: Data, _ held: HeldRequest) {
+        guard let event = HookEvent(payload: payload) else {
+            held.respond(with: Data())
+            return
+        }
+        let id = UUID().uuidString
+        heldRequests[id] = held
+        held.onClientGone = { [weak self] in
+            guard let self, self.heldRequests[id] != nil else { return }
+            self.core.connectionDropped(id, at: Date())
+            self.refreshSnapshot()
+        }
+        core.handle(event, at: Date(), requestID: id)
+        refreshSnapshot()
+    }
+
+    /// The user's decision on a request in the queue.
+    func decide(_ decision: Decision, on requestID: String) {
+        core.decide(decision, on: requestID, at: Date())
+        refreshSnapshot()
+    }
+
+    /// Gives every request the core has finished with its answer and lets its connection go.
+    /// Requests that ran out of time are finished here too, with no decision.
+    private func deliverResolutions() {
+        core.advance(to: Date())
+        for resolution in core.drainResolutions() {
+            heldRequests.removeValue(forKey: resolution.requestID)?
+                .respond(with: PermissionResponse.body(for: resolution.outcome))
+        }
     }
 
     // MARK: Usage limits

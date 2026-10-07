@@ -64,6 +64,15 @@ struct AppConfig {
         nonmutating set { defaults.set(newValue, forKey: "connectionRemovedByUser") }
     }
 
+    /// How long a request card waits before the request goes back to Claude Code's own dialog.
+    /// `-requestTimeoutSeconds` shortens it for a check by hand; it can never reach the time
+    /// Claude Code lets the hook wait.
+    var requestTimeout: TimeInterval {
+        let seconds = defaults.integer(forKey: "requestTimeoutSeconds")
+        let longest = ClaudeSettings.permissionHookTimeout - 60
+        return TimeInterval(seconds > 0 ? min(seconds, longest) : min(300, longest))
+    }
+
     var livenessMinutes: Int {
         get {
             let minutes = defaults.integer(forKey: "livenessMinutes")

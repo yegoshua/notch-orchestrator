@@ -8,11 +8,13 @@ final class HookReceiver {
     private let token: String
     private let onPayload: @MainActor (Data) -> Void
     private let onStatusLine: @MainActor (Data) -> Void
+    private let onPermissionRequest: @MainActor (Data, HeldRequest) -> Void
     private let queue = DispatchQueue(label: "hook-receiver")
 
     init(
         port: Int, token: String,
         onStatusLine: @escaping @MainActor (Data) -> Void = { _ in },
+        onPermissionRequest: @escaping @MainActor (Data, HeldRequest) -> Void = { _, held in held.respond(with: Data()) },
         onPayload: @escaping @MainActor (Data) -> Void
     ) throws {
         let parameters = NWParameters.tcp
@@ -23,6 +25,7 @@ final class HookReceiver {
         self.token = token
         self.onPayload = onPayload
         self.onStatusLine = onStatusLine
+        self.onPermissionRequest = onPermissionRequest
     }
 
     func start(onFailure: @escaping @MainActor (NWError) -> Void) {
@@ -73,6 +76,16 @@ final class HookReceiver {
             return
         }
         let body = request.body
+        // A permission request is not answered here: its connection stays open until the user
+        // decides, the request is settled elsewhere, or the app gives up waiting.
+        if request.path == "/hook/\(ClaudeSettings.permissionEvent)" {
+            let held = HeldRequest(connection: connection, queue: queue)
+            held.watchForClientLeaving()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self.onPermissionRequest(body, held) }
+            }
+            return
+        }
         Task { @MainActor in self.onPayload(body) }
         send(status: "200 OK", on: connection)
     }
@@ -82,6 +95,53 @@ final class HookReceiver {
         connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
             connection.cancel()
         })
+    }
+}
+
+/// The open connection of a permission hook that waits for its answer.
+final class HeldRequest: @unchecked Sendable {
+    private let connection: NWConnection
+    private let queue: DispatchQueue
+    /// Answered, or abandoned by the client. Touched on `queue` only.
+    private var isFinished = false
+    /// Called once if the client closes the connection before any answer.
+    @MainActor var onClientGone: (() -> Void)?
+
+    fileprivate init(connection: NWConnection, queue: DispatchQueue) {
+        self.connection = connection
+        self.queue = queue
+    }
+
+    /// Answers the hook and closes the connection. An empty body is "no decision". Does nothing
+    /// when the connection was already answered or the client is gone.
+    func respond(with body: Data) {
+        queue.async {
+            guard !self.isFinished else { return }
+            self.isFinished = true
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                + "Content-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+            self.connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in
+                self.connection.cancel()
+            })
+        }
+    }
+
+    /// The client has sent its whole request, so the only thing left to read is the end of the
+    /// connection: curl exiting or being killed.
+    fileprivate func watchForClientLeaving() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { _, _, isComplete, error in
+            guard !self.isFinished else { return }
+            guard isComplete || error != nil else {
+                self.watchForClientLeaving()
+                return
+            }
+            self.isFinished = true
+            self.connection.cancel()
+            // The main queue keeps this behind the delivery of the request itself.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self.onClientGone?() }
+            }
+        }
     }
 }
 
