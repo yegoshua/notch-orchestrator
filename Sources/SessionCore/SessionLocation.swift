@@ -17,6 +17,19 @@ public enum SessionLocation: Equatable, Sendable {
     case application(name: String, bundleID: String)
     case unknown
 
+    public static let terminalBundleID = "com.apple.Terminal"
+    public static let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
+
+    /// The application whose window shows the session.
+    public var bundleID: String? {
+        switch self {
+        case .desktopApp: Self.claudeDesktopBundleID
+        case .terminalApp: Self.terminalBundleID
+        case .vsCode(let bundleID), .application(_, let bundleID): bundleID
+        case .unknown: nil
+        }
+    }
+
     public var origin: SessionOrigin {
         if case .desktopApp = self { return .desktop }
         return .cli

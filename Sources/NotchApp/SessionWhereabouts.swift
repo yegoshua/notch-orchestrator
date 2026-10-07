@@ -57,7 +57,7 @@ final class DesktopSessionRecords {
 
 /// Finds the program a CLI session runs in by walking up from its process.
 enum ProcessHost {
-    static let terminalBundleID = "com.apple.Terminal"
+    static let terminalBundleID = SessionLocation.terminalBundleID
     private static let vsCodeBundleIDs = ["com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.vscodium"]
 
     static func location(of pid: pid_t) -> SessionLocation {
@@ -103,7 +103,7 @@ enum ProcessHost {
 /// said by its `jumpTarget`; every jump falls back to bringing the application forward.
 @MainActor
 enum SessionJump {
-    private static let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
+    private static let claudeDesktopBundleID = SessionLocation.claudeDesktopBundleID
 
     static func jump(to location: SessionLocation, cwd: String?) {
         switch location {

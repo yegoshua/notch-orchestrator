@@ -78,6 +78,9 @@ public struct Snapshot: Equatable, Sendable {
     public var counters: Counters
     /// Requests waiting for the user's decision, across all sessions, in the order they arrived.
     public var requests: [PendingRequest]
+    /// Those of them the island is to put before the user by itself, expanded. The others wait
+    /// to be looked for: their session is in front, or the user asked for quiet.
+    public var raised: [PendingRequest]
 }
 
 public struct Settings: Equatable, Sendable {
@@ -89,14 +92,16 @@ public struct Settings: Equatable, Sendable {
     /// How long a request may go unanswered before it is given back to Claude Code's own dialog
     /// with no decision. Has to stay well below the time Claude Code lets the hook wait.
     public var requestTimeout: TimeInterval
+    public var interruptionMode: InterruptionMode
 
     public init(
         livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180,
-        requestTimeout: TimeInterval = 300
+        requestTimeout: TimeInterval = 300, interruptionMode: InterruptionMode = .smart
     ) {
         self.livenessThreshold = livenessThreshold
         self.unconfirmedWorkTimeout = unconfirmedWorkTimeout
         self.requestTimeout = requestTimeout
+        self.interruptionMode = interruptionMode
     }
 }
 
@@ -111,6 +116,9 @@ public struct SessionCore {
     private var resolutions: [Resolution] = []
     /// Numbers requests in the order they arrived; two may arrive in the same instant.
     private var requestCount = 0
+    private var attention = Attention()
+    /// Interruptions nobody has collected yet.
+    private var interruptions: [Interruption] = []
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -181,6 +189,12 @@ public struct SessionCore {
         /// Set once the user left the request to the session's own dialog. Its connection is
         /// released by then; what remains is the knowledge that the session waits.
         var handedBackAt: Date?
+        /// Put before the user by the island itself.
+        var isRaised = false
+        /// Its session has been in front since it asked, so the user has seen its own dialog.
+        var wasInFront = false
+        /// A sound has been made for it. There is never a second one.
+        var wasAnnounced = false
     }
 
     // MARK: Hook events
@@ -189,6 +203,7 @@ public struct SessionCore {
     /// `requestID` its resolution is to carry.
     public mutating func handle(_ event: HookEvent, at time: Date, requestID: String? = nil) {
         advance(to: time)
+        defer { reviewRequests() }
         if event.name == "SessionEnd" {
             release(records[event.sessionID]?.requests ?? [])
             records[event.sessionID] = nil
@@ -198,6 +213,7 @@ public struct SessionCore {
 
         var record = records[event.sessionID]
             ?? Record(id: event.sessionID, since: time, lastEventAt: time)
+        let stateBefore = record.state
         record.lastEventAt = time
         record.cwd = event.cwd ?? record.cwd
         record.transcriptPath = event.transcriptPath ?? record.transcriptPath
@@ -307,6 +323,7 @@ public struct SessionCore {
         // A subagent may still be asking when its session's own turn moves on.
         record.requestsChanged(at: time)
         records[event.sessionID] = record
+        if record.state != stateBefore { announceTurnEnd(of: record) }
     }
 
     /// Removes the requests `event` shows to be settled outside the app. The request payload has
@@ -355,6 +372,7 @@ public struct SessionCore {
     /// or a decision that does not fit it, changes nothing.
     public mutating func decide(_ decision: Decision, on requestID: String, at time: Date) {
         advance(to: time)
+        defer { reviewRequests() }
         guard let (sessionID, index) = locate(requestID), var record = records[sessionID] else { return }
         let request = record.requests[index]
         let outcome: Outcome
@@ -393,6 +411,7 @@ public struct SessionCore {
     /// the call in the session's own dialog, or the session is gone.
     public mutating func connectionDropped(_ requestID: String, at time: Date) {
         advance(to: time)
+        defer { reviewRequests() }
         guard let (sessionID, index) = locate(requestID), var record = records[sessionID] else { return }
         release([record.requests.remove(at: index)])
         record.requestsChanged(at: time)
@@ -421,6 +440,7 @@ public struct SessionCore {
             records[id] = record
         }
         prune(at: time)
+        reviewRequests()
     }
 
     /// Hands out, once, the ends of requests reached since the last call. Whoever holds the
@@ -447,6 +467,72 @@ public struct SessionCore {
             .map { Resolution(requestID: $0.id, outcome: .noDecision) }
     }
 
+    // MARK: Interruptions
+
+    /// Takes in what the user is looking at and whether a Focus is on.
+    public mutating func attend(_ attention: Attention, at time: Date) {
+        advance(to: time)
+        self.attention = attention
+        reviewRequests()
+    }
+
+    /// Hands out, once, what the island is to do by itself since the last call.
+    public mutating func drainInterruptions() -> [Interruption] {
+        defer { interruptions = [] }
+        return interruptions
+    }
+
+    /// A Focus asks for quiet whatever the user chose for other times.
+    private var mode: InterruptionMode {
+        attention.focusIsOn ? .quiet : settings.interruptionMode
+    }
+
+    /// Whether the user is looking at the session. Only Terminal says which of its tabs is in
+    /// front; of any other application, and of Terminal when it does not say, only the session
+    /// that is alone there is known to be the one in front.
+    private func isInFront(_ record: Record) -> Bool {
+        guard let front = attention.frontWindow, let bundleID = record.location.bundleID, bundleID == front.bundleID
+        else { return false }
+        if case .terminalApp(let tty) = record.location, let frontTTY = front.terminalTTY { return tty == frontTTY }
+        return !records.values.contains { $0.id != record.id && $0.state != nil && $0.location.bundleID == bundleID }
+    }
+
+    /// Decides anew which requests the island puts before the user. Run after every input: a
+    /// request, the front window, the Focus and the mode all bear on it.
+    private mutating func reviewRequests() {
+        let mode = mode
+        var raised: [(order: Int, interruption: Interruption)] = []
+        for (id, var record) in records where !record.requests.isEmpty {
+            let inFront = isInFront(record)
+            for index in record.requests.indices where record.requests[index].handedBackAt == nil {
+                var request = record.requests[index]
+                request.wasInFront = request.wasInFront || inFront
+                let raise = mode == .loud || (mode == .smart && !inFront)
+                if raise, !request.isRaised {
+                    // Coming up again, or after the user saw the session's own dialog, is no news.
+                    let sound = !request.wasAnnounced && (mode == .loud || !request.wasInFront)
+                    request.wasAnnounced = request.wasAnnounced || sound
+                    raised.append((request.order, .expand(requestID: request.id, sound: sound)))
+                }
+                request.isRaised = raise
+                record.requests[index] = request
+            }
+            records[id] = record
+        }
+        interruptions += raised.sorted { $0.order < $1.order }.map(\.interruption)
+    }
+
+    /// The line for a turn that has just ended, unless the user is looking at the session anyway.
+    private mutating func announceTurnEnd(of record: Record) {
+        guard record.state == .finishedTurn || record.state == .failed else { return }
+        let mode = mode
+        guard mode == .loud || (mode == .smart && !isInFront(record)) else { return }
+        let line = TransientLine(
+            sessionID: record.id, title: Self.title(record), project: Self.project(record),
+            kind: record.state == .failed ? .failed : .finished)
+        interruptions.append(.line(line, sound: mode == .loud))
+    }
+
     // MARK: Reconciliation
 
     /// Takes in what was observed about a session at `time`. Where it contradicts the hooks it wins,
@@ -459,6 +545,7 @@ public struct SessionCore {
         if observation.process == .dead {
             release(known?.requests ?? [])
             records[observation.sessionID] = nil
+            reviewRequests()
             return
         }
 
@@ -518,7 +605,10 @@ public struct SessionCore {
         }
         // Only a session with something to show is worth remembering.
         if known != nil || record.state != nil { records[observation.sessionID] = record }
+        // A session found at launch ended its turn before anybody was listening.
+        if let before = known?.state, before == .working || before.isWaiting { announceTurnEnd(of: record) }
         prune(at: time)
+        reviewRequests()
     }
 
     /// Sessions reconciliation should look at: every one the core tracks, shown or not.
@@ -536,27 +626,26 @@ public struct SessionCore {
     }
 
     private func currentSnapshot(at time: Date) -> Snapshot {
-        func title(_ record: Record) -> String? { record.observedTitle ?? record.firstPrompt }
-        var queue: [(order: Int, request: PendingRequest)] = []
+        var queue: [(order: Int, isRaised: Bool, request: PendingRequest)] = []
         for record in records.values {
             for request in record.requests where request.handedBackAt == nil {
                 let shown = PendingRequest(
-                    id: request.id, sessionID: record.id, sessionTitle: title(record),
-                    project: record.cwd.map { ($0 as NSString).lastPathComponent },
+                    id: request.id, sessionID: record.id, sessionTitle: Self.title(record),
+                    project: Self.project(record),
                     toolName: request.toolName, detail: RequestPresentation.detail(of: request.input),
                     summary: RequestPresentation.summary(of: request.input),
                     excerpt: RequestPresentation.excerpt(of: request.input), questions: request.questions,
                     arrivedAt: request.arrivedAt, location: record.location)
-                queue.append((request.order, shown))
+                queue.append((request.order, request.isRaised, shown))
             }
         }
-        let requests = queue.sorted { $0.order < $1.order }.map(\.request)
+        queue.sort { $0.order < $1.order }
         let live = records.values
             .compactMap { record -> Session? in
                 guard let state = record.state, isLive(state, since: record.since, at: time) else { return nil }
                 return Session(
                     id: record.id, state: state, since: record.since, cwd: record.cwd,
-                    title: title(record), activity: record.activity,
+                    title: Self.title(record), activity: record.activity,
                     subagents: record.subagents, location: record.location)
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
@@ -568,7 +657,8 @@ public struct SessionCore {
                 finished: live.filter { $0.state == .finishedTurn }.count,
                 failed: live.filter { $0.state == .failed }.count
             ),
-            requests: requests
+            requests: queue.map(\.request),
+            raised: queue.filter(\.isRaised).map(\.request)
         )
     }
 
@@ -589,6 +679,12 @@ public struct SessionCore {
     }
 
     private static let compacting = "Compacting"
+
+    private static func title(_ record: Record) -> String? { record.observedTitle ?? record.firstPrompt }
+
+    private static func project(_ record: Record) -> String? {
+        record.cwd.map { ($0 as NSString).lastPathComponent }
+    }
 
     private static func describe(_ tool: HookEvent.Tool) -> String {
         guard let subject = tool.subject.flatMap(headline) else { return tool.name }
