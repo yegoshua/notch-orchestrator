@@ -38,6 +38,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             choice.state = model.livenessMinutes == minutes ? .on : .off
         }
         menu.addItem(liveness)
+        HotkeyMenu.shared.add(to: menu)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }

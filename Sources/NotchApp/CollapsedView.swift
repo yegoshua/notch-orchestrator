@@ -8,7 +8,7 @@ struct CollapsedView: View {
     let geometry: NotchGeometry
 
     private var counters: Counters { model.snapshot.counters }
-    private var isVisible: Bool { counters.working + counters.finished > 0 }
+    private var isVisible: Bool { counters.failed + counters.working + counters.finished > 0 }
 
     var body: some View {
         Group {
@@ -38,6 +38,12 @@ struct CollapsedView: View {
 
     private var countersRow: some View {
         HStack(spacing: 8) {
+            if counters.failed > 0 {
+                counter(counters.failed, color: Self.failedColor) {
+                    Image(systemName: "exclamationmark").font(.system(size: 9, weight: .heavy))
+                }
+                .accessibilityLabel("\(counters.failed) failed")
+            }
             if counters.working > 0 {
                 counter(counters.working, color: Self.workingColor) { WorkingMark() }
                     .accessibilityLabel("\(counters.working) working")
@@ -63,6 +69,7 @@ struct CollapsedView: View {
         }
     }
 
+    private static let failedColor = Color(red: 1.0, green: 0.62, blue: 0.30)
     private static let workingColor = Color(red: 0.45, green: 0.68, blue: 1.0)
     private static let finishedColor = Color(red: 0.45, green: 0.85, blue: 0.55)
 }

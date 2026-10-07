@@ -5,6 +5,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AppModel(config: AppConfig())
     private var panel: NotchPanelController?
+    private var expandedPanel: ExpandedPanelController?
     private var menu: StatusMenuController?
 
     static func main() {
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.start()
         panel = NotchPanelController(model: model)
+        expandedPanel = ExpandedPanelController(model: model)
         menu = StatusMenuController(model: model)
     }
 }
