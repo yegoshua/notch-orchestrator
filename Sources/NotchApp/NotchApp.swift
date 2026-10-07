@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AppModel(config: AppConfig())
     private var panel: NotchPanelController?
     private var expandedPanel: ExpandedPanelController?
+    private var requestCard: RequestCardController?
     private var menu: StatusMenuController?
 
     static func main() {
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.start()
         panel = NotchPanelController(model: model)
         expandedPanel = ExpandedPanelController(model: model)
+        requestCard = RequestCardController(model: model)
         menu = StatusMenuController(model: model)
     }
 }

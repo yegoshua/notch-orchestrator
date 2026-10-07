@@ -8,7 +8,7 @@ struct CollapsedView: View {
     let geometry: NotchGeometry
 
     private var counters: Counters { model.snapshot.counters }
-    private var isVisible: Bool { counters.failed + counters.working + counters.finished > 0 }
+    private var isVisible: Bool { counters.waiting + counters.failed + counters.working + counters.finished > 0 }
 
     var body: some View {
         Group {
@@ -62,6 +62,18 @@ struct CollapsedView: View {
 
     private var countersRow: some View {
         HStack(spacing: 8) {
+            if counters.waiting > 0 {
+                // The one counter that asks for something: a filled badge, where the others are a
+                // small mark beside a number.
+                Text("\(counters.waiting)")
+                    .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.black)
+                    .contentTransition(.numericText())
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 16, minHeight: 15)
+                    .background(Capsule().fill(Self.waitingColor))
+                    .accessibilityLabel("\(counters.waiting) waiting for you")
+            }
             if counters.failed > 0 {
                 counter(counters.failed, color: Self.failedColor) {
                     Image(systemName: "exclamationmark").font(.system(size: 9, weight: .heavy))
@@ -93,6 +105,7 @@ struct CollapsedView: View {
         }
     }
 
+    private static let waitingColor = Color(red: 1.0, green: 0.82, blue: 0.25)
     private static let failedColor = Color(red: 1.0, green: 0.62, blue: 0.30)
     private static let workingColor = Color(red: 0.45, green: 0.68, blue: 1.0)
     private static let finishedColor = Color(red: 0.45, green: 0.85, blue: 0.55)

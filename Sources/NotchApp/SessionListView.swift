@@ -168,7 +168,7 @@ private struct SessionRow: View {
 }
 
 /// The state as a shape, so it reads without relying on colour.
-struct StateMark: View {
+private struct StateMark: View {
     let state: SessionState
     @State private var turning = false
 

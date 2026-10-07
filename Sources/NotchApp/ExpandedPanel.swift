@@ -60,9 +60,10 @@ final class ExpandedPanelController {
         ) { [weak self] _ in
             Task { @MainActor in self?.collapse() }
         })
-        snapshotChanges = model.$snapshot.receive(on: DispatchQueue.main).sink { [weak self] _ in
+        snapshotChanges = model.$snapshot.receive(on: DispatchQueue.main).sink { [weak self] snapshot in
             guard let self, self.isExpanded else { return }
-            self.layout()
+            // A request card takes the place under the notch.
+            if snapshot.requests.isEmpty { self.layout() } else { self.collapse() }
         }
         registerHotkey()
     }
@@ -81,7 +82,7 @@ final class ExpandedPanelController {
 
     private func expand(byPointer: Bool) {
         cancelPending()
-        guard !isExpanded, let screen = Self.screen else { return }
+        guard !isExpanded, model.snapshot.requests.isEmpty, let screen = Self.screen else { return }
         pointerHasEntered = byPointer
         panel.contentView = NSHostingView(rootView: SessionListView(model: model, topInset: Self.topInset(on: screen)))
         layout()
