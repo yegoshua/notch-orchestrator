@@ -21,11 +21,18 @@ public enum SettingsError: Error, Equatable {
 /// The pure transformation of Claude Code settings: add our hook entries, remove them.
 public enum ClaudeSettings {
     /// Hook events the app subscribes to: the life of a session, of its turns, of the tool calls
-    /// that are its activity, and of its subagents.
+    /// that are its activity, of its subagents, and its requests to the user.
     public static let events = [
-        "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolBatch",
+        "SessionStart", "UserPromptSubmit", "PreToolUse", permissionEvent, "PostToolUse", "PostToolBatch",
         "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
     ]
+
+    /// The one event whose hook waits for an answer and hands it back to Claude Code.
+    public static let permissionEvent = "PermissionRequest"
+
+    /// How long, in seconds, Claude Code lets the permission hook wait for the user. The app has to
+    /// give its answer, or give up, well before that.
+    public static let permissionHookTimeout = 600
 
     /// Ends every command we install. An entry is ours if and only if it carries this marker.
     static let marker = "# notch-orchestrator"
@@ -36,9 +43,16 @@ public enum ClaudeSettings {
     /// A command hook rather than an HTTP hook: when the app is not running an HTTP hook prints a
     /// connection error into the session, while this exits quietly with status zero.
     /// `-q` and `--noproxy` keep the user's curl configuration and proxy from redirecting the post.
+    ///
+    /// The permission hook differs in two ways: it prints the response body, which is how a command
+    /// hook hands its decision to Claude Code, and it waits for the user instead of two seconds.
+    /// With nothing listening it still prints nothing and succeeds at once, and an empty output is
+    /// "no decision": Claude Code carries on with its own dialog.
     static func command(for event: String, _ connection: HookConnection) -> String {
         let headerFile = connection.tokenHeaderFile.path.replacingOccurrences(of: "'", with: "'\\''")
-        return "/usr/bin/curl -q -s -m 2 --noproxy '*' -o /dev/null -H @'\(headerFile)' "
+        let waits = event == permissionEvent
+        return "/usr/bin/curl -q -s -m \(waits ? permissionHookTimeout - 10 : 2) --noproxy '*' "
+            + (waits ? "" : "-o /dev/null ") + "-H @'\(headerFile)' "
             + "-H 'Content-Type: application/json' --data-binary @- "
             + "http://127.0.0.1:\(connection.port)/hook/\(event) 2>/dev/null || true \(marker)"
     }
@@ -54,7 +68,7 @@ public enum ClaudeSettings {
             let hook: OrderedJSON = .object([
                 .init(key: "type", value: .string("command")),
                 .init(key: "command", value: .string(command(for: event, connection))),
-                .init(key: "timeout", value: .number("5")),
+                .init(key: "timeout", value: .number(event == permissionEvent ? "\(permissionHookTimeout)" : "5")),
             ])
             groups.append(.object([.init(key: "hooks", value: .array([hook]))]))
             hooks[event] = .array(groups)
