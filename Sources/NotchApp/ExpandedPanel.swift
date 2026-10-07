@@ -133,7 +133,8 @@ final class ExpandedPanelController {
 
     private func schedule(after delay: TimeInterval, _ action: @escaping @MainActor (ExpandedPanelController) -> Void) {
         let work = DispatchWorkItem { [weak self] in
-            Task { @MainActor in
+            // Already on the main queue; running here keeps a cancellation from arriving in between.
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 self.pending = nil
                 action(self)
