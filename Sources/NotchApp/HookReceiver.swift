@@ -7,9 +7,14 @@ final class HookReceiver {
     private let listener: NWListener
     private let token: String
     private let onPayload: @MainActor (Data) -> Void
+    private let onStatusLine: @MainActor (Data) -> Void
     private let queue = DispatchQueue(label: "hook-receiver")
 
-    init(port: Int, token: String, onPayload: @escaping @MainActor (Data) -> Void) throws {
+    init(
+        port: Int, token: String,
+        onStatusLine: @escaping @MainActor (Data) -> Void = { _ in },
+        onPayload: @escaping @MainActor (Data) -> Void
+    ) throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(
@@ -17,6 +22,7 @@ final class HookReceiver {
         listener = try NWListener(using: parameters)
         self.token = token
         self.onPayload = onPayload
+        self.onStatusLine = onStatusLine
     }
 
     func start(onFailure: @escaping @MainActor (NWError) -> Void) {
@@ -53,6 +59,13 @@ final class HookReceiver {
     private func respond(to request: HTTPRequest, on connection: NWConnection) {
         guard request.headers[ClaudeSettings.tokenHeader.lowercased()] == token else {
             send(status: "401 Unauthorized", on: connection)
+            return
+        }
+        // The status line wrapper posts what Claude Code gave the status line.
+        if request.method == "POST", request.path == ClaudeSettings.statusLinePath {
+            let payload = request.body
+            Task { @MainActor in self.onStatusLine(payload) }
+            send(status: "200 OK", on: connection)
             return
         }
         guard request.method == "POST", request.path.hasPrefix("/hook/") else {

@@ -97,7 +97,7 @@ private func commands(in settings: Data, event: String) throws -> [String] {
         #expect(try commands(in: installed, event: "PreToolUse").first == "echo \"été ✓\" >> ~/log.txt")
         #expect(try commands(in: installed, event: "PreToolUse").count == 2)
         #expect(text.contains("\"timeout\": 1.50"))
-        #expect(text.contains("\"command\": \"~/.claude/statusline.sh\""))
+        #expect(text.contains("~/.claude/statusline.sh"))
         // Key order is the user's, not alphabetical.
         let permissions = try #require(text.range(of: "\"permissions\""))
         let cleanup = try #require(text.range(of: "\"cleanupPeriodDays\""))

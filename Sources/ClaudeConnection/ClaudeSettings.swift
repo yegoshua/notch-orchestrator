@@ -60,6 +60,8 @@ public enum ClaudeSettings {
             hooks[event] = .array(groups)
         }
         document.root["hooks"] = hooks
+        removeStatusLine(from: &document.root)
+        installStatusLine(connection, in: &document.root)
         return document.data
     }
 
@@ -67,6 +69,7 @@ public enum ClaudeSettings {
     public static func removing(from settings: Data) throws -> Data {
         var document = try Document(settings)
         try document.removeOurEntries()
+        removeStatusLine(from: &document.root)
         return document.data
     }
 

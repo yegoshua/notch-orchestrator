@@ -1,8 +1,8 @@
 import SessionCore
 import SwiftUI
 
-/// Counters by state beside the notch, or in a top-centre pill on screens without one.
-/// With no live sessions it draws nothing at all.
+/// Counters by state to the left of the notch and the usage ring to the right, or both in a
+/// top-centre pill on screens without a notch. With no live sessions it draws nothing but the ring.
 struct CollapsedView: View {
     @ObservedObject var model: AppModel
     let geometry: NotchGeometry
@@ -14,27 +14,46 @@ struct CollapsedView: View {
         Group {
             if geometry.hasNotch {
                 HStack(spacing: 0) {
-                    countersRow
-                        .padding(.horizontal, 10)
-                        .frame(width: NotchGeometry.earWidth, alignment: .trailing)
-                    Color.clear.frame(width: geometry.notchWidth)
-                }
-                .frame(maxHeight: .infinity)
-                .background(
-                    UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                countersRow
-                    .padding(.horizontal, 12)
+                    HStack(spacing: 0) {
+                        countersRow
+                            .padding(.horizontal, 10)
+                            .frame(width: NotchGeometry.earWidth, alignment: .trailing)
+                        Color.clear.frame(width: geometry.notchWidth)
+                    }
                     .frame(maxHeight: .infinity)
-                    .background(Capsule().fill(.black))
-                    .padding(.vertical, 2)
-                    .frame(maxWidth: .infinity)
+                    .background(UnevenRoundedRectangle(bottomLeadingRadius: 10).fill(.black))
+                    .opacity(isVisible ? 1 : 0)
+                    rightEar
+                }
+            } else {
+                HStack(spacing: 10) {
+                    if isVisible { countersRow }
+                    ring
+                }
+                .padding(.horizontal, 12)
+                .frame(maxHeight: .infinity)
+                .background(Capsule().fill(.black))
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity)
             }
         }
-        .opacity(isVisible ? 1 : 0)
         .animation(.easeOut(duration: 0.2), value: isVisible)
     }
+
+    // MARK: Right ear: usage ring
+
+    private var ring: some View { LimitRing(window: model.limits.fiveHour) }
+
+    /// Always drawn, also with no live sessions.
+    private var rightEar: some View {
+        ring
+            .padding(.horizontal, 8)
+            .frame(width: NotchGeometry.earWidth, alignment: .leading)
+            .frame(maxHeight: .infinity)
+            .background(UnevenRoundedRectangle(bottomTrailingRadius: 10).fill(.black))
+    }
+
+    // MARK: Left ear: counters
 
     private var countersRow: some View {
         HStack(spacing: 8) {

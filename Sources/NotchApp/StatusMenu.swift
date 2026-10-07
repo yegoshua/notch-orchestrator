@@ -26,6 +26,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         menu.addItem(withTitle: status, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
+        addLimits(to: menu)
+        menu.addItem(.separator())
         add("Repair Connection", #selector(repair), to: menu)
         add("Remove Completely", #selector(remove), to: menu)
         menu.addItem(.separator())
@@ -41,6 +43,22 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         HotkeyMenu.shared.add(to: menu)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    }
+
+    /// Usage limits in words: the ring has no room to explain itself.
+    private func addLimits(to menu: NSMenu) {
+        let limits = model.limits
+        let now = Date()
+        var lines = [
+            LimitText.line("5-hour limit", limits.fiveHour, now: now),
+            LimitText.line("Weekly limit", limits.sevenDay, now: now),
+        ]
+        if limits.fiveHour == .noData && limits.sevenDay == .noData {
+            lines = ["Usage limits: no data yet", LimitText.noDataExplanation]
+        }
+        for line in lines {
+            menu.addItem(withTitle: line, action: nil, keyEquivalent: "").isEnabled = false
+        }
     }
 
     @discardableResult

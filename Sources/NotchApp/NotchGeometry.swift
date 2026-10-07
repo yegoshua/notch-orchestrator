@@ -4,7 +4,8 @@ import AppKit
 struct NotchGeometry: Equatable {
     /// Room for the counters beside the notch.
     static let earWidth: CGFloat = 96
-    static let pillWidth: CGFloat = 120
+    /// Counters and the usage ring side by side.
+    static let pillWidth: CGFloat = 176
     static let fallbackHeight: CGFloat = 24
 
     /// The window: the notch plus one ear on each side, or the pill.
