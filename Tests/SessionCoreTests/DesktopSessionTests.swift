@@ -24,11 +24,31 @@ private func record(
         #expect(record.title == "Deposit limit validation")
     }
 
+    @Test func theRequestsTheDesktopAppTiedToTheSessionAreRead() throws {
+        // As the desktop app wrote them; older records carry no provider.
+        let json = """
+            {"sessionId": "local_1", "prs": [
+              {"prNumber": 95, "repo": "me/shop", "host": "github.com", "provider": "github",
+               "url": "https://github.com/me/shop/pull/95", "branch": "feat/testimonials", "baseRef": "main",
+               "state": "MERGED", "dismissed": true},
+              {"prNumber": 12, "url": "https://gitlab.com/group/shop/-/merge_requests/12", "repo": "group/shop",
+               "host": "gitlab.com", "branch": "feat/size-chart", "baseRef": "main", "state": "OPEN"},
+              {"repo": "me/shop", "branch": "no-number"}]}
+            """
+        let record = try #require(DesktopSessionRecord(json: Data(json.utf8)))
+
+        #expect(record.requests == [
+            RequestLink(number: 95, url: "https://github.com/me/shop/pull/95", branch: "feat/testimonials", state: "MERGED"),
+            RequestLink(number: 12, url: "https://gitlab.com/group/shop/-/merge_requests/12", branch: "feat/size-chart", state: "OPEN"),
+        ])
+    }
+
     @Test func aRecordWithoutATitleHasNone() throws {
         let record = try #require(DesktopSessionRecord(json: Data(#"{"sessionId": "local_1", "title": "  "}"#.utf8)))
 
         #expect(record.title == nil)
         #expect(record.cliSessionID == nil)
+        #expect(record.requests.isEmpty)
     }
 
     @Test func whatIsNotASessionRecordIsNotRead() {

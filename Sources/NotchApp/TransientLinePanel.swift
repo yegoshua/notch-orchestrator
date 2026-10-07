@@ -3,7 +3,7 @@ import Combine
 import SessionCore
 import SwiftUI
 
-/// The line that tells of a turn that ended: the island grows by one row for a few seconds and
+/// The line that tells of a turn or a pipeline that ended: the island grows by one row for a few seconds and
 /// collapses by itself. Display only: it never takes clicks or focus, and it gives way to the
 /// request card and the session list at once.
 @MainActor
@@ -104,19 +104,31 @@ final class TransientLineController {
     }
 }
 
-/// "frontoffice finished": the session by the name the list gives it, and how its turn ended.
+/// "frontoffice finished", "frontoffice CI failed": the session by the name the list gives it,
+/// and how its turn or its pipeline ended.
 private struct TransientLineView: View {
     let line: TransientLine
 
+    private var isFailure: Bool { line.kind == .failed || line.kind == .ciFailed }
+
+    private var ending: String {
+        switch line.kind {
+        case .finished: "finished"
+        case .failed: "failed"
+        case .ciPassed: "CI passed"
+        case .ciFailed: "CI failed"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            StateMark(state: line.kind == .failed ? .failed : .finishedTurn).frame(width: 14)
+            StateMark(state: isFailure ? .failed : .finishedTurn).frame(width: 14)
             Text(line.title ?? line.project ?? "Untitled session")
                 .font(Island.bodyMedium)
                 .foregroundStyle(Island.text)
-            Text(line.kind == .failed ? "failed" : "finished")
+            Text(ending)
                 .font(Island.body)
-                .foregroundStyle(line.kind == .failed ? Island.failedText : Island.text2)
+                .foregroundStyle(isFailure ? Island.failedText : Island.text2)
                 .layoutPriority(1)
             Spacer(minLength: 0)
             if line.title != nil, let project = line.project {

@@ -28,6 +28,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(withTitle: status, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
         addLimits(to: menu)
+        addPipelineAccess(to: menu)
         menu.addItem(.separator())
         add("Repair Connection", #selector(repair), to: menu)
         add("Remove Completely", #selector(remove), to: menu)
@@ -64,6 +65,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         for line in lines {
             menu.addItem(withTitle: line, action: nil, keyEquivalent: "").isEnabled = false
+        }
+    }
+
+    /// The app holds no tokens: a host it cannot ask is fixed by signing in with the host's own tool.
+    private func addPipelineAccess(to menu: NSMenu) {
+        let hosts = model.unreachableHosts
+        guard !hosts.isEmpty else { return }
+        menu.addItem(.separator())
+        for (host, command) in hosts {
+            menu.addItem(withTitle: "CI: no access to \(host)", action: nil, keyEquivalent: "").isEnabled = false
+            let copy = add("Copy Sign-In Command: \(command)", #selector(copyCommand(_:)), to: menu)
+            copy.representedObject = command
         }
     }
 
@@ -134,6 +147,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func remove() { model.removeConnection() }
     @objc private func setLiveness(_ sender: NSMenuItem) { model.livenessMinutes = sender.tag }
     @objc private func setMode(_ sender: NSMenuItem) { model.interruptionMode = Self.modes[sender.tag].mode }
+
+    @objc private func copyCommand(_ sender: NSMenuItem) {
+        guard let command = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+    }
 
     @objc private func setSound(_ sender: NSMenuItem) {
         InterruptionSound.current = sender.representedObject as? String

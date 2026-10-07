@@ -66,6 +66,8 @@ public struct Session: Equatable, Sendable {
     public var location: SessionLocation = .unknown
     /// Nil while nothing is known about it.
     public var context: ContextUsage?
+    /// The CI of what the session pushed last. Nil when it pushed nothing, or nothing with a pipeline.
+    public var ci: SessionCI?
 
     public var origin: SessionOrigin { location.origin }
     public var project: String? { cwd.map { ($0 as NSString).lastPathComponent } }
@@ -109,15 +111,22 @@ public struct Settings: Equatable, Sendable {
     /// with no decision. Has to stay well below the time Claude Code lets the hook wait.
     public var requestTimeout: TimeInterval
     public var interruptionMode: InterruptionMode
+    /// How long the pipeline of a push is looked for before the push is taken to have none.
+    public var pipelineLookupTimeout: TimeInterval
+    /// How long a running pipeline may go without being seen running before it is unknown.
+    public var pipelineConfirmationTimeout: TimeInterval
 
     public init(
         livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180,
-        requestTimeout: TimeInterval = 300, interruptionMode: InterruptionMode = .smart
+        requestTimeout: TimeInterval = 300, interruptionMode: InterruptionMode = .smart,
+        pipelineLookupTimeout: TimeInterval = 120, pipelineConfirmationTimeout: TimeInterval = 300
     ) {
         self.livenessThreshold = livenessThreshold
         self.unconfirmedWorkTimeout = unconfirmedWorkTimeout
         self.requestTimeout = requestTimeout
         self.interruptionMode = interruptionMode
+        self.pipelineLookupTimeout = pipelineLookupTimeout
+        self.pipelineConfirmationTimeout = pipelineConfirmationTimeout
     }
 }
 
@@ -164,6 +173,10 @@ public struct SessionCore {
         /// The state is `unknown` because a request ran out of time. The transcript still ending
         /// in that tool call is then no sign of work.
         var gaveUpWaiting = false
+        /// The CI of the push the session is followed for: its latest.
+        var ci: FollowedCI?
+        /// The requests the desktop app tied to the session.
+        var desktopRequests: [RequestLink] = []
 
         mutating func enter(_ state: SessionState, at time: Date) {
             self.state = state
@@ -191,6 +204,22 @@ public struct SessionCore {
             subagents = []
             pendingAgentTasks = []
         }
+    }
+
+    /// The CI of a push as the core keeps it.
+    private struct FollowedCI {
+        /// Nil until the repository was read after the push.
+        var push: Push?
+        var state = CIState.pending
+        var url: String?
+        /// The request of the pushed branch, as looked up on the host.
+        var request: RequestLink?
+        /// When the push was reported, and after that when its pipeline was last seen.
+        var confirmedAt: Date
+        /// When the pipeline reached the state it stays in.
+        var endedAt: Date?
+        /// When a push was reported that the repository has not been read for yet.
+        var unreadSince: Date?
     }
 
     /// A request as the core keeps it.
@@ -339,6 +368,13 @@ public struct SessionCore {
         default:
             break
         }
+        // A push counts once it returned, whichever agent of the session made it. Which commit
+        // went out is for the repository to say.
+        if event.name == "PostToolUse", let tool = event.tool, tool.name == "Bash",
+           let command = tool.input?["command"]?.string ?? tool.subject, PushCommand.isPush(command) {
+            if record.ci == nil { record.ci = FollowedCI(confirmedAt: time) }
+            record.ci?.unreadSince = time
+        }
         // A subagent may still be asking when its session's own turn moves on.
         record.requestsChanged(at: time)
         records[event.sessionID] = record
@@ -457,6 +493,25 @@ public struct SessionCore {
                 record.requestsChanged(at: time)
             }
             records[id] = record
+        }
+        for id in Array(records.keys) {
+            guard var ci = records[id]?.ci else { continue }
+            if let unread = ci.unreadSince, time.timeIntervalSince(unread) >= settings.pipelineLookupTimeout {
+                // The repository would not say what was pushed.
+                ci.unreadSince = nil
+            }
+            switch ci.state {
+            case .pending where time.timeIntervalSince(ci.confirmedAt) >= settings.pipelineLookupTimeout:
+                // No pipeline ever appeared: the repository has no CI, or none for this push.
+                records[id]?.ci = nil
+                continue
+            case .running where time.timeIntervalSince(ci.confirmedAt) >= settings.pipelineConfirmationTimeout:
+                ci.state = .unknown
+                ci.endedAt = ci.confirmedAt.addingTimeInterval(settings.pipelineConfirmationTimeout)
+            default:
+                break
+            }
+            records[id]?.ci = ci
         }
         prune(at: time)
         reviewRequests()
@@ -578,6 +633,112 @@ public struct SessionCore {
         interruptions.append(.line(line, sound: mode == .loud))
     }
 
+    // MARK: Pipelines
+
+    /// Pushes to look at: those whose repository has to be read, those whose pipeline is still
+    /// to be found or still running, and those whose host could not be asked.
+    public var followedPushes: [FollowedPush] {
+        records.values.compactMap { record -> FollowedPush? in
+            guard let ci = record.ci, Self.isLookedUp(ci.state) || ci.unreadSince != nil else { return nil }
+            var lacksAccess = false
+            if case .noAccess = ci.state { lacksAccess = true }
+            return FollowedPush(
+                sessionID: record.id, cwd: record.cwd, push: ci.unreadSince == nil ? ci.push : nil,
+                request: Self.request(of: record), lacksAccess: lacksAccess)
+        }
+        .sorted { $0.sessionID < $1.sessionID }
+    }
+
+    /// Takes in what the repository showed at `time`, after a session's push. Only a push the
+    /// hooks reported is followed, and a look from before that push says nothing about it. The
+    /// same commit pushed again keeps the pipeline it has.
+    public mutating func handle(_ push: Push, readAt time: Date) {
+        advance(to: time)
+        guard var ci = records[push.sessionID]?.ci, let pushedAt = ci.unreadSince, pushedAt <= time else { return }
+        if ci.push?.commit != push.commit { ci = FollowedCI(push: push, confirmedAt: pushedAt) }
+        ci.unreadSince = nil
+        records[push.sessionID]?.ci = ci
+    }
+
+    /// A host that could not be asked may be asked again: the user may have signed in since.
+    private static func isLookedUp(_ state: CIState) -> Bool {
+        if case .noAccess = state { return true }
+        return state.isFollowed
+    }
+
+    /// Takes in what the git host said about a session's push. What it says about a commit the
+    /// session is no longer followed for is ignored, and so is anything after the pipeline ended.
+    public mutating func reconcile(_ observation: PipelineObservation, observedAt time: Date) {
+        advance(to: time)
+        guard var record = records[observation.sessionID], var ci = record.ci, let push = ci.push,
+              push.commit == observation.commit
+        else { return }
+        if let request = observation.request { ci.request = request }
+        let before = ci.state
+        if Self.isLookedUp(before) {
+            switch observation.lookup {
+            case .found(let pipeline):
+                ci.confirmedAt = time
+                ci.url = pipeline.url
+                switch pipeline.state {
+                case .running(let stage): ci.state = .running(stage: stage)
+                case .passed: ci.state = .passed
+                case .failed:
+                    ci.state = .failed
+                    ci.url = pipeline.failedJobURL ?? pipeline.url
+                case .unknown: ci.state = .unknown
+                }
+            case .noPipeline:
+                // The host answers after all: the wait for a pipeline begins now.
+                if !before.isFollowed {
+                    ci.state = .pending
+                    ci.confirmedAt = time
+                }
+            case .noAccess:
+                // A pipeline that was seen running is on a host that can be reached: one lookup
+                // that fails is no reason to give it up.
+                if before == .pending { ci.state = .noAccess(host: push.remote.host) }
+            case .unknown:
+                // The same goes for one answer that could not be read. A pipeline nobody
+                // confirms any more turns unknown by itself.
+                if before == .pending { ci.state = .unknown }
+            }
+            if ci.state.isFollowed {
+                ci.endedAt = nil
+            } else if before.isFollowed {
+                ci.endedAt = time
+            }
+        }
+        record.ci = ci
+        records[observation.sessionID] = record
+        if ci.state != before { announcePipelineEnd(of: record) }
+    }
+
+    /// The line for a pipeline that has just passed or failed. Unlike the end of a turn it is
+    /// news also to somebody looking at the session: its window does not show it.
+    private mutating func announcePipelineEnd(of record: Record) {
+        let kind: TransientLine.Kind
+        switch record.ci?.state {
+        case .passed: kind = .ciPassed
+        case .failed: kind = .ciFailed
+        default: return
+        }
+        let mode = mode
+        guard mode != .quiet else { return }
+        let line = TransientLine(
+            sessionID: record.id, title: Self.title(record), project: Self.project(record), kind: kind)
+        interruptions.append(.line(line, sound: mode == .loud))
+    }
+
+    /// The request of the pushed branch: the one found on the host, else the one the desktop
+    /// app recorded for that branch.
+    private static func request(of record: Record) -> RequestLink? {
+        guard let ci = record.ci else { return nil }
+        if let request = ci.request { return request }
+        guard let branch = ci.push?.branch else { return nil }
+        return record.desktopRequests.last { $0.branch == branch }
+    }
+
     // MARK: Reconciliation
 
     /// Takes in what was observed about a session at `time`. Where it contradicts the hooks it wins,
@@ -601,6 +762,7 @@ public struct SessionCore {
         // A look that found nothing says nothing about where the session runs.
         if observation.location != .unknown { record.location = observation.location }
         if let tokens = observation.contextTokens { record.context.tokens = tokens }
+        if !observation.requests.isEmpty { record.desktopRequests = observation.requests }
 
         if let tail = observation.transcript {
             // Without a process behind it, a turn in progress is a guess.
@@ -688,12 +850,13 @@ public struct SessionCore {
         queue.sort { $0.order < $1.order }
         let live = records.values
             .compactMap { record -> Session? in
-                guard let state = record.state, isLive(state, since: record.since, at: time) else { return nil }
+                guard let state = record.state, isLive(record, in: state, at: time) else { return nil }
                 return Session(
                     id: record.id, state: state, since: record.since, cwd: record.cwd,
                     title: Self.title(record), activity: record.activity,
                     subagents: record.subagents, location: record.location,
-                    context: record.context == ContextUsage() ? nil : record.context)
+                    context: record.context == ContextUsage() ? nil : record.context,
+                    ci: record.ci.map { SessionCI(state: $0.state, url: $0.url, request: Self.request(of: record)) })
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
         return Snapshot(
@@ -709,17 +872,23 @@ public struct SessionCore {
         )
     }
 
-    private func isLive(_ state: SessionState, since: Date, at time: Date) -> Bool {
+    /// A session whose pipeline is still followed is live however long ago its turn ended; once
+    /// the pipeline ended, the threshold counts from that moment.
+    private func isLive(_ record: Record, in state: SessionState, at time: Date) -> Bool {
+        if record.ci?.state.isFollowed == true { return true }
         switch state {
-        case .working, .waitingForPermission, .waitingForAnswer: true
-        case .finishedTurn, .failed, .unknown: time.timeIntervalSince(since) < settings.livenessThreshold
+        case .working, .waitingForPermission, .waitingForAnswer:
+            return true
+        case .finishedTurn, .failed, .unknown:
+            let since = max(record.since, record.ci?.endedAt ?? record.since)
+            return time.timeIntervalSince(since) < settings.livenessThreshold
         }
     }
 
     /// Forgets sessions that stopped being live, and sessions that never had a turn and went quiet.
     private mutating func prune(at time: Date) {
         records = records.filter { _, record in
-            if let state = record.state { return isLive(state, since: record.since, at: time) }
+            if let state = record.state { return isLive(record, in: state, at: time) }
             return time.timeIntervalSince(record.lastEventAt) < settings.livenessThreshold
         }
         endedAt = endedAt.filter { time.timeIntervalSince($0.value) < settings.livenessThreshold }

@@ -8,6 +8,8 @@ struct SessionListView: View {
     /// The height of the band above the list, which counts against the height the island may take.
     let bandHeight: CGFloat
     let jump: (Session) -> Void
+    /// Opens the pipeline of a session's push in the browser.
+    let openPipeline: (URL) -> Void
 
     /// The order the sessions were in when the list opened. Rows do not move under the pointer;
     /// a changed order shows the next time the list opens.
@@ -137,6 +139,7 @@ struct SessionListView: View {
             SessionRow(
                 session: session, request: model.snapshot.requests.first { $0.sessionID == session.id },
                 now: now, isHovered: hovered == session.id, isFolded: folded.contains(session.id),
+                openPipeline: openPipeline,
                 toggleSubagents: {
                     withAnimation(Island.content) { folded.formSymmetricDifference([session.id]) }
                 })
@@ -157,6 +160,7 @@ private struct SessionRow: View {
     let now: Date
     let isHovered: Bool
     let isFolded: Bool
+    let openPipeline: (URL) -> Void
     let toggleSubagents: () -> Void
 
     private var target: JumpTarget? { session.location.jumpTarget }
@@ -190,6 +194,7 @@ private struct SessionRow: View {
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel(isFolded ? "Show subagents" : "Hide subagents")
                     }
+                    if let ci = session.ci { PipelineMark(ci: ci, open: openPipeline) }
                 }
                 .frame(height: 16)
             }
@@ -290,6 +295,63 @@ private struct SessionRow: View {
         default: text = String(format: "%dh %02dm", seconds / 3600, seconds % 3600 / 60)
         }
         return ago ? "\(text) ago" : text
+    }
+}
+
+/// The CI of what the session pushed, in a few words. A click on it opens the pipeline, on the
+/// job that failed when there is one; the rest of the row keeps the jump to the session.
+private struct PipelineMark: View {
+    let ci: SessionCI
+    let open: (URL) -> Void
+
+    /// The pipeline, else the request of the branch. What a host handed out is opened only when
+    /// it is a web address.
+    private var url: URL? {
+        guard let url = (ci.url ?? ci.request?.url).flatMap(URL.init(string:)),
+              url.scheme == "https" || url.scheme == "http"
+        else { return nil }
+        return url
+    }
+
+    private var label: String {
+        switch ci.state {
+        case .pending: "CI pending"
+        case .running(let stage): stage.map { "CI: \($0)" } ?? "CI running"
+        case .passed: "CI passed"
+        case .failed: "CI failed"
+        case .unknown: "CI unknown"
+        case .noAccess(let host): "CI: no access to \(host)"
+        }
+    }
+
+    private var color: Color {
+        switch ci.state {
+        case .running: Island.working
+        case .passed: Island.finished
+        case .failed: Island.failedText
+        case .pending, .unknown, .noAccess: Island.text3
+        }
+    }
+
+    /// The note about a host is long and gives way to what the session does.
+    private var keepsItsWidth: Bool {
+        if case .noAccess = ci.state { return false }
+        return true
+    }
+
+    var body: some View {
+        let mark = Text("· \(label)")
+            .font(Island.detail)
+            .foregroundStyle(color)
+            .layoutPriority(keepsItsWidth ? 1 : 0)
+        if let url {
+            mark.contentShape(Rectangle())
+                .onTapGesture { open(url) }
+                .accessibilityAddTraits(.isLink)
+                .accessibilityHint("Opens the pipeline in the browser")
+        } else {
+            mark
+        }
     }
 }
 

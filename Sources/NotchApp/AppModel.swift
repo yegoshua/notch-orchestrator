@@ -21,7 +21,7 @@ final class AppModel: ObservableObject {
     /// limits will arrive.
     @Published private(set) var forwardsUsageLimits = true
 
-    /// The lines of turns that ended, as the core decides to show them.
+    /// The lines of turns and pipelines that ended, as the core decides to show them.
     let lines = PassthroughSubject<TransientLine, Never>()
 
     let config: AppConfig
@@ -82,6 +82,14 @@ final class AppModel: ObservableObject {
             }
         }
         startReconciling()
+        pipelineTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.pipelineTicks += 1
+                // A host that could not be asked is tried again only once a minute.
+                self.followPipelines(retrying: self.pipelineTicks % 3 == 0)
+            }
+        }
     }
 
     func repairConnection() {
@@ -124,6 +132,8 @@ final class AppModel: ObservableObject {
         if event.name == "Stop" || event.name == "StopFailure" { lookAround(forSession: true) }
         core.handle(event, at: Date())
         refreshSnapshot()
+        // What a push sent out is read from the repository right away, while it still shows it.
+        if event.name == "PostToolUse" { followPipelines(unreadOnly: true) }
     }
 
     /// Run after every input and on the timer: it is also what answers the held connections.
@@ -289,6 +299,57 @@ final class AppModel: ObservableObject {
             return "Claude Code settings are not valid JSON; left untouched"
         }
         return error.localizedDescription
+    }
+
+    // MARK: Pipelines
+
+    private let pipelines = PipelinePoller()
+    private var pipelineTimer: Timer?
+    private var isFollowingPipelines = false
+    private var pipelineTicks = 0
+    /// A push was reported while a look was under way: its repository is read once that is done.
+    private var hasUnreadPush = false
+
+    /// Hosts whose pipelines could not be asked for, each with the command that signs in to it.
+    var unreachableHosts: [(host: String, signInCommand: String)] {
+        var hosts: [String] = []
+        for session in snapshot.sessions {
+            if case .noAccess(let host) = session.ci?.state, !hosts.contains(host) { hosts.append(host) }
+        }
+        return hosts.map { ($0, GitProvider(host: $0).signInCommand(host: $0)) }
+    }
+
+    /// Looks up the pushes the core follows: only sessions that pushed, off the main thread, and
+    /// never two looks at once. With `unreadOnly`, only those whose repository is still to be read;
+    /// without `retrying`, not those whose host could not be asked the last time.
+    private func followPipelines(unreadOnly: Bool = false, retrying: Bool = false) {
+        let followed = core.followedPushes.filter {
+            $0.push == nil || (!unreadOnly && (retrying || !$0.lacksAccess))
+        }
+        guard !followed.isEmpty else { return }
+        guard !isFollowingPipelines else {
+            hasUnreadPush = hasUnreadPush || unreadOnly
+            return
+        }
+        isFollowingPipelines = true
+        let pipelines = pipelines
+        let readAt = Date()
+        DispatchQueue.global(qos: .utility).async {
+            let found = pipelines.look(at: followed)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // A push reported since the look began is not what the repository was read for.
+                for push in found.pushes { self.core.handle(push, readAt: readAt) }
+                let now = Date()
+                for observation in found.observations { self.core.reconcile(observation, observedAt: now) }
+                self.isFollowingPipelines = false
+                self.refreshSnapshot()
+                if self.hasUnreadPush {
+                    self.hasUnreadPush = false
+                    self.followPipelines(unreadOnly: true)
+                }
+            }
+        }
     }
 
     // MARK: Reconciliation

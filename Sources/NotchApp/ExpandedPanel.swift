@@ -109,9 +109,13 @@ final class ExpandedPanelController {
             let list = IslandSurface(
                 model: model, stage: stage, presence: presence, geometry: geometry, width: Island.listWidth, maxHeight: Island.maxHeight
             ) {
-                SessionListView(model: model, bandHeight: geometry.frame.height) { [weak self] session in
-                    self?.jump(to: session)
-                }
+                SessionListView(
+                    model: model, bandHeight: geometry.frame.height,
+                    jump: { [weak self] session in self?.jump(to: session) },
+                    openPipeline: { [weak self] url in
+                        NSWorkspace.shared.open(url)
+                        self?.collapse()
+                    })
             }
             panel.contentView = FirstClickHostingView(rootView: AnyView(list))
             sizer.fit(panel, to: CGSize(width: Island.listWidth, height: Island.maxHeight), geometry: geometry, on: screen.frame)

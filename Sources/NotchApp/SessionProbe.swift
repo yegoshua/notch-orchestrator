@@ -91,7 +91,8 @@ final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
             // The desktop sidebar's title first, so that the session can be found there.
             title: (location.origin == .desktop ? owner?.title : nil) ?? record?.userGivenName ?? text.flatMap(TranscriptReader.title(in:)),
             transcriptPath: transcript?.path, location: location,
-            contextTokens: text.flatMap(TranscriptReader.contextTokens(in:)))
+            contextTokens: text.flatMap(TranscriptReader.contextTokens(in:)),
+            requests: location.origin == .desktop ? owner?.requests ?? [] : [])
     }
 
     private func process(of id: String, among records: [String: [ProcessRecord]]) -> Observation.Process {

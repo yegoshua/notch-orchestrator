@@ -38,11 +38,15 @@ public struct Attention: Equatable, Sendable {
     }
 }
 
-/// The one line that tells of a turn that ended.
+/// The one line that tells of a turn that ended, or of a pipeline that did.
 public struct TransientLine: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case finished
         case failed
+        /// The pipeline of what the session pushed passed.
+        case ciPassed
+        /// It failed.
+        case ciFailed
     }
 
     public var sessionID: String
@@ -64,7 +68,7 @@ public enum Interruption: Equatable, Sendable {
     /// The request joined `Snapshot.raised`: the island expands with its card. With a sound when
     /// the request is news to the user.
     case expand(requestID: String, sound: Bool)
-    /// A turn ended: the island shows the line for a moment and collapses again.
+    /// A turn or a pipeline ended: the island shows the line for a moment and collapses again.
     case line(TransientLine, sound: Bool)
 }
 

@@ -40,11 +40,13 @@ public struct Observation: Equatable, Sendable {
     public var location: SessionLocation
     /// How many tokens the transcript shows in the session's context; nil when it does not say.
     public var contextTokens: Int?
+    /// The pull or merge requests the desktop app tied to the session, oldest first.
+    public var requests: [RequestLink]
 
     public init(
         sessionID: String, process: Process, transcript: TranscriptTail? = nil,
         cwd: String? = nil, title: String? = nil, transcriptPath: String? = nil,
-        location: SessionLocation = .unknown, contextTokens: Int? = nil
+        location: SessionLocation = .unknown, contextTokens: Int? = nil, requests: [RequestLink] = []
     ) {
         self.sessionID = sessionID
         self.process = process
@@ -54,5 +56,6 @@ public struct Observation: Equatable, Sendable {
         self.transcriptPath = transcriptPath
         self.location = location
         self.contextTokens = contextTokens
+        self.requests = requests
     }
 }

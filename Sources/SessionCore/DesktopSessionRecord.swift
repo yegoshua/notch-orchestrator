@@ -1,7 +1,7 @@
 import Foundation
 
 /// The record the Claude desktop app keeps per Code session, reduced to what tells a desktop
-/// session from a CLI one. The format is private to the app: anything unexpected reads as "no record".
+/// session from a CLI one and to the requests it opened. The format is private to the app: anything unexpected reads as "no record".
 public struct DesktopSessionRecord: Equatable, Sendable {
     /// The desktop app's own identifier, `local_…`. Deep links take this one.
     public var sessionID: String
@@ -11,15 +11,18 @@ public struct DesktopSessionRecord: Equatable, Sendable {
     public var priorCLISessionIDs: [String]
     /// The title shown in the desktop sidebar.
     public var title: String?
+    /// The pull and merge requests the app tied to the session, in the order it recorded them.
+    public var requests: [RequestLink]
 
     public init(
         sessionID: String, cliSessionID: String? = nil, priorCLISessionIDs: [String] = [],
-        title: String? = nil
+        title: String? = nil, requests: [RequestLink] = []
     ) {
         self.sessionID = sessionID
         self.cliSessionID = cliSessionID
         self.priorCLISessionIDs = priorCLISessionIDs
         self.title = title
+        self.requests = requests
     }
 
     /// Reads the contents of a record file. Nil when it is not a session record.
@@ -32,9 +35,14 @@ public struct DesktopSessionRecord: Equatable, Sendable {
             if let id = object[key] as? String { prior.append(id) }
         }
         let title = (object["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requests = (object["prs"] as? [[String: Any]] ?? []).compactMap { request -> RequestLink? in
+            guard let number = request["prNumber"] as? Int, let url = request["url"] as? String else { return nil }
+            return RequestLink(
+                number: number, url: url, branch: request["branch"] as? String, state: request["state"] as? String)
+        }
         self.init(
             sessionID: sessionID, cliSessionID: object["cliSessionId"] as? String, priorCLISessionIDs: prior,
-            title: title?.isEmpty == false ? title : nil)
+            title: title?.isEmpty == false ? title : nil, requests: requests)
     }
 
     /// The desktop session behind a hook session identifier; nil for a CLI session.
