@@ -1,4 +1,5 @@
 import ClaudeConnection
+import Combine
 import Foundation
 import SessionCore
 
@@ -20,6 +21,9 @@ final class AppModel: ObservableObject {
     /// limits will arrive.
     @Published private(set) var forwardsUsageLimits = true
 
+    /// The lines of turns that ended, as the core decides to show them.
+    let lines = PassthroughSubject<TransientLine, Never>()
+
     let config: AppConfig
     private var core: SessionCore
     private var usage = UsageLimits()
@@ -30,7 +34,8 @@ final class AppModel: ObservableObject {
     init(config: AppConfig) {
         self.config = config
         core = SessionCore(settings: Settings(
-            livenessThreshold: TimeInterval(config.livenessMinutes * 60), requestTimeout: config.requestTimeout))
+            livenessThreshold: TimeInterval(config.livenessMinutes * 60), requestTimeout: config.requestTimeout,
+            interruptionMode: config.interruptionMode))
         snapshot = core.snapshot(at: Date())
         if let stored = try? Data(contentsOf: config.usageLimitsFile),
            let usage = try? JSONDecoder().decode(UsageLimits.self, from: stored) {
@@ -64,9 +69,14 @@ final class AppModel: ObservableObject {
         } catch {
             connectionStatus = .failed(Self.describe(error))
         }
+        attentionMonitor.onChange = { [weak self] in
+            self?.lookAround()
+            self?.refreshSnapshot()
+        }
         // Finished sessions age out without any event arriving.
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in
+                self?.lookAround()
                 self?.refreshSnapshot()
                 self?.refreshLimits()
             }
@@ -98,8 +108,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var interruptionMode: InterruptionMode {
+        get { config.interruptionMode }
+        set {
+            config.interruptionMode = newValue
+            core.settings.interruptionMode = newValue
+            lookAround()
+            refreshSnapshot()
+        }
+    }
+
     private func receive(_ payload: Data) {
         guard let event = HookEvent(payload: payload) else { return }
+        // The end of a turn is told to the user or not by where they are looking right now.
+        if event.name == "Stop" || event.name == "StopFailure" { lookAround() }
         core.handle(event, at: Date())
         refreshSnapshot()
     }
@@ -109,6 +131,49 @@ final class AppModel: ObservableObject {
         deliverResolutions()
         let next = core.snapshot(at: Date())
         if next != snapshot { snapshot = next }
+        interrupt()
+        watchFrontWindow(while: !next.requests.isEmpty)
+    }
+
+    // MARK: Interruptions
+
+    let attentionMonitor = AttentionMonitor()
+    private var frontWindowTimer: Timer?
+
+    /// Tells the core what the user is looking at and whether a Focus is on. Which tab Terminal
+    /// shows is asked only while a session runs in Terminal.
+    private func lookAround() {
+        let inTerminal = snapshot.sessions.contains { $0.location.bundleID == SessionLocation.terminalBundleID }
+        core.attend(attentionMonitor.attention(readingTerminalTab: inTerminal), at: Date())
+    }
+
+    /// Does what the core decided since the last time. Several sounds at once are one sound.
+    private func interrupt() {
+        var sounds = false
+        for interruption in core.drainInterruptions() {
+            switch interruption {
+            case .expand(_, let sound):
+                // The card follows `snapshot.raised`.
+                sounds = sounds || sound
+            case .line(let line, let sound):
+                lines.send(line)
+                sounds = sounds || sound
+            }
+        }
+        if sounds { InterruptionSound.play() }
+    }
+
+    /// Switching tabs inside an application is not announced by the system. While a request
+    /// waits, whether its session is in front decides about its card, so it is looked up often.
+    private func watchFrontWindow(while isWatching: Bool) {
+        guard isWatching != (frontWindowTimer != nil) else { return }
+        frontWindowTimer?.invalidate()
+        frontWindowTimer = !isWatching ? nil : Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.lookAround()
+                self?.refreshSnapshot()
+            }
+        }
     }
 
     // MARK: Requests to the user
@@ -121,6 +186,7 @@ final class AppModel: ObservableObject {
             held.respond(with: Data())
             return
         }
+        lookAround()
         let id = UUID().uuidString
         heldRequests[id] = held
         held.onClientGone = { [weak self] in

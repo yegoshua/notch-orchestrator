@@ -42,3 +42,5 @@ It also reads the Claude desktop app's session records (read-only) to tell deskt
 Colours, sizes, radii and springs of the island live in `Sources/NotchApp/IslandKit.swift`; they follow the "Notch Island v2" design.
 
 A permission request the user ignores goes back to Claude Code's own dialog after five minutes. `-requestTimeoutSeconds 20` shortens that for a check by hand.
+
+Whether the island interrupts is decided in the session core (`Sources/SessionCore/Interruptions.swift`) from the mode, the window in front and Focus; the app only reports those and carries the decisions out. `-interruptionMode loud|smart|quiet` and `-interruptionSound Name` (empty for none) override the stored settings for one run. Focus is read from `~/Library/DoNotDisturb/DB/Assertions.json`, which macOS keeps from apps without Full Disk Access; without it no Focus is seen. Which Terminal tab is in front is asked of Terminal by Apple event, so it needs the same Automation grant as the jump.

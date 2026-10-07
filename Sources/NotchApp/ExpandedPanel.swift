@@ -63,15 +63,11 @@ final class ExpandedPanelController {
         ) { [weak self] _ in
             Task { @MainActor in self?.registerHotkey() }
         })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.collapse(animated: false) }
-        })
+        observers += IslandScreen.observe { [weak self] in self?.collapse(animated: false) }
         stage.onOpenSizeChange = { [weak self] in self?.fitWindow() }
         snapshotChanges = model.$snapshot.receive(on: DispatchQueue.main).sink { [weak self] snapshot in
             // A request card takes the place under the notch, at once.
-            if !snapshot.requests.isEmpty { self?.collapse(animated: false) }
+            if !snapshot.raised.isEmpty { self?.collapse(animated: false) }
         }
         registerHotkey()
     }
@@ -90,8 +86,9 @@ final class ExpandedPanelController {
 
     private func expand(byPointer: Bool) {
         cancelPending()
-        // A request card has the place under the notch, also while it is still leaving.
-        guard !isExpanded, model.snapshot.requests.isEmpty, !presence.cardIsOpen, let screen = NSScreen.island
+        // A request card has the place under the notch, also while it is still leaving. A request
+        // that was not raised has no card: the list is where it is found.
+        guard !isExpanded, model.snapshot.raised.isEmpty, !presence.cardIsOpen, let screen = NSScreen.island
         else { return }
         isExpanded = true
         pointerHasEntered = byPointer

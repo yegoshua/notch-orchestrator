@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: NotchPanelController?
     private var expandedPanel: ExpandedPanelController?
     private var requestCard: RequestCardController?
+    private var transientLine: TransientLineController?
     private var menu: StatusMenuController?
 
     static func main() {
@@ -23,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel = NotchPanelController(model: model, presence: presence)
         expandedPanel = ExpandedPanelController(model: model, presence: presence)
         requestCard = RequestCardController(model: model, presence: presence)
+        transientLine = TransientLineController(model: model, presence: presence)
         menu = StatusMenuController(model: model)
     }
 }

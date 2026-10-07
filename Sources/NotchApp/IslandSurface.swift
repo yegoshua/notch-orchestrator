@@ -7,8 +7,9 @@ import SwiftUI
 final class IslandPresence: ObservableObject {
     @Published var listIsOpen = false
     @Published var cardIsOpen = false
+    @Published var lineIsOpen = false
 
-    var isOpen: Bool { listIsOpen || cardIsOpen }
+    var isOpen: Bool { listIsOpen || cardIsOpen || lineIsOpen }
 }
 
 /// Keeps the window of an open island just larger than the island: room for its shadow and the

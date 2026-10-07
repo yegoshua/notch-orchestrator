@@ -1,5 +1,6 @@
 import ClaudeConnection
 import Foundation
+import SessionCore
 
 /// Where the app keeps its own files and how it reaches Claude Code.
 /// Every value can be overridden from the command line (`-claudeSettingsPath …`) for development,
@@ -71,6 +72,12 @@ struct AppConfig {
         let seconds = defaults.integer(forKey: "requestTimeoutSeconds")
         let longest = ClaudeSettings.permissionHookTimeout - 60
         return TimeInterval(seconds > 0 ? min(seconds, longest) : min(300, longest))
+    }
+
+    /// Smart unless the user chose otherwise.
+    var interruptionMode: InterruptionMode {
+        get { defaults.string(forKey: "interruptionMode").flatMap(InterruptionMode.init) ?? .smart }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: "interruptionMode") }
     }
 
     var livenessMinutes: Int {

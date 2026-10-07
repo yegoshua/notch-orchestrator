@@ -1,4 +1,5 @@
 import AppKit
+import SessionCore
 
 /// The menu bar item: connection state and the two connection actions.
 @MainActor
@@ -41,6 +42,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         menu.addItem(liveness)
         HotkeyMenu.shared.add(to: menu)
+        addInterruptions(to: menu)
+        addScreens(to: menu)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
@@ -64,6 +67,62 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
+    private static let modes: [(mode: InterruptionMode, title: String)] = [
+        (.loud, "Loud: expand and sound for every request and every finished turn"),
+        (.smart, "Smart: expand and sound only for a session that is not in front"),
+        (.quiet, "Quiet: counters only"),
+    ]
+
+    private func addInterruptions(to menu: NSMenu) {
+        let interruptions = NSMenuItem(title: "Interruptions", action: nil, keyEquivalent: "")
+        interruptions.submenu = NSMenu()
+        for (index, choice) in Self.modes.enumerated() {
+            let entry = add(choice.title, #selector(setMode(_:)), to: interruptions.submenu!)
+            entry.tag = index
+            entry.state = model.interruptionMode == choice.mode ? .on : .off
+        }
+        interruptions.submenu!.addItem(.separator())
+        let focus = model.attentionMonitor.canReadFocus
+            ? "A Focus silences every mode"
+            : "Focus cannot be seen: allow Full Disk Access to have it respected"
+        interruptions.submenu!.addItem(withTitle: focus, action: nil, keyEquivalent: "").isEnabled = false
+        menu.addItem(interruptions)
+
+        let sound = NSMenuItem(title: "Sound", action: nil, keyEquivalent: "")
+        sound.submenu = NSMenu()
+        add("None", #selector(setSound(_:)), to: sound.submenu!).state = InterruptionSound.current == nil ? .on : .off
+        sound.submenu!.addItem(.separator())
+        for name in InterruptionSound.names {
+            let entry = add(name, #selector(setSound(_:)), to: sound.submenu!)
+            entry.representedObject = name
+            entry.state = InterruptionSound.current == name ? .on : .off
+        }
+        menu.addItem(sound)
+    }
+
+    private func addScreens(to menu: NSMenu) {
+        let screens = NSMenuItem(title: "Show Island On", action: nil, keyEquivalent: "")
+        screens.submenu = NSMenu()
+        let chosen = IslandScreen.chosen
+        add("Automatic", #selector(setScreen(_:)), to: screens.submenu!).state = chosen == nil ? .on : .off
+        screens.submenu!.addItem(.separator())
+        var isConnected = false
+        for screen in NSScreen.screens {
+            guard let id = screen.displayID else { continue }
+            let entry = add(screen.localizedName, #selector(setScreen(_:)), to: screens.submenu!)
+            entry.representedObject = [id, screen.localizedName]
+            entry.state = chosen?.id == id ? .on : .off
+            isConnected = isConnected || chosen?.id == id
+        }
+        if let chosen, !isConnected {
+            // The choice is kept for when the display comes back; until then the app picks.
+            let entry = screens.submenu!.addItem(withTitle: "\(chosen.name) (not connected)", action: nil, keyEquivalent: "")
+            entry.state = .on
+            entry.isEnabled = false
+        }
+        menu.addItem(screens)
+    }
+
     @discardableResult
     private func add(_ title: String, _ action: Selector, to menu: NSMenu) -> NSMenuItem {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
@@ -74,4 +133,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func repair() { model.repairConnection() }
     @objc private func remove() { model.removeConnection() }
     @objc private func setLiveness(_ sender: NSMenuItem) { model.livenessMinutes = sender.tag }
+    @objc private func setMode(_ sender: NSMenuItem) { model.interruptionMode = Self.modes[sender.tag].mode }
+
+    @objc private func setSound(_ sender: NSMenuItem) {
+        InterruptionSound.current = sender.representedObject as? String
+        // So the choice can be made by ear.
+        InterruptionSound.play()
+    }
+
+    @objc private func setScreen(_ sender: NSMenuItem) {
+        let screen = sender.representedObject as? [String]
+        IslandScreen.chosen = screen.map { ($0[0], $0[1]) }
+    }
 }

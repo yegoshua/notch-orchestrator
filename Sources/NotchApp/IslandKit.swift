@@ -82,6 +82,9 @@ enum Island {
     static let pillGap: CGFloat = 16
     /// How far the pill hangs below the top edge.
     static let pillDrop: CGFloat = 5
+    /// The row of the transient line, and how much wider than the collapsed island it is.
+    static let lineHeight: CGFloat = 32
+    static let lineGrowth: CGFloat = 36
 
     // MARK: Radii
 

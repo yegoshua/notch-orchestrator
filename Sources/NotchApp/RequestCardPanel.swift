@@ -4,8 +4,9 @@ import Combine
 import SessionCore
 import SwiftUI
 
-/// The card that drops out of the notch while a session waits for the user: the request at the
-/// head of the queue, with the next one taking its place once it is answered.
+/// The card that drops out of the notch while a session waits for the user and the core raised
+/// its request: the first of those, with the next one taking its place once it is answered. It
+/// goes back into the notch as soon as nothing is raised, answered or not.
 ///
 /// It appears without taking focus from the app in front. Its buttons work on the first click,
 /// its window becomes key only when the user clicks into the text field, and Allow and Deny have
@@ -27,7 +28,7 @@ final class RequestCardController {
     /// Set while the card returns into the notch; its window goes when that is done.
     private var closing: DispatchWorkItem?
     private var queueChanges: AnyCancellable?
-    private var screenObserver: NSObjectProtocol?
+    private var screenObservers: [NSObjectProtocol] = []
     private var shown: PendingRequest?
     private var shownSince = Date.distantPast
     private var allowHotkey: GlobalHotkey?
@@ -50,17 +51,13 @@ final class RequestCardController {
         panel.appearance = NSAppearance(named: .darkAqua)
 
         stage.onOpenSizeChange = { [weak self] in self?.layout() }
-        queueChanges = model.$snapshot.map(\.requests).removeDuplicates()
+        queueChanges = model.$snapshot.map(\.raised).removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] requests in self?.show(requests) }
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            // The island is drawn for one screen's notch: on another it is laid out anew.
-            Task { @MainActor in
-                guard let self else { return }
-                self.show(self.model.snapshot.requests)
-            }
+        // The island is drawn for one screen's notch: on another it is laid out anew.
+        screenObservers = IslandScreen.observe { [weak self] in
+            guard let self else { return }
+            self.show(self.model.snapshot.raised)
         }
     }
 

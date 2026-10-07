@@ -27,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
-    <key>NSAppleEventsUsageDescription</key><string>Brings forward the Terminal tab a session runs in when you click the session.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Brings forward the Terminal tab a session runs in when you click the session, and tells whether that tab is already in front before interrupting you.</string>
 </dict>
 </plist>
 PLIST
