@@ -20,8 +20,12 @@ public enum SettingsError: Error, Equatable {
 
 /// The pure transformation of Claude Code settings: add our hook entries, remove them.
 public enum ClaudeSettings {
-    /// Hook events the app subscribes to.
-    public static let events = ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd"]
+    /// Hook events the app subscribes to: the life of a session, of its turns, of the tool calls
+    /// that are its activity, and of its subagents.
+    public static let events = [
+        "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolBatch",
+        "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
+    ]
 
     /// Ends every command we install. An entry is ours if and only if it carries this marker.
     static let marker = "# notch-orchestrator"

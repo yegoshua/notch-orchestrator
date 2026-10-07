@@ -26,6 +26,15 @@ import SessionCore
         #expect(session.activity == nil)
     }
 
+    @Test func activityClearsWhenTheToolCallWasDenied() throws {
+        var core = SessionCore()
+        let at = try Fixture("cli/cli-permission-deny").play(into: &core) { $0.event.name == "PostToolBatch" }
+
+        let session = try #require(core.snapshot(at: at).sessions.first)
+        #expect(session.state == .working)
+        #expect(session.activity == nil)
+    }
+
     @Test func runningSubagentsAreListedUnderTheirSessionWithWhatEachDoes() throws {
         var core = SessionCore()
         let at = try Fixture("cli/cli-subagents").play(into: &core) { $0.event.name == "Stop" }

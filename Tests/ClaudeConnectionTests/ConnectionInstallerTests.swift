@@ -63,7 +63,11 @@ private func commands(in settings: Data, event: String) throws -> [String] {
     func emptySettingsGetOneHookPerLifecycleEvent(original: String?) throws {
         let installed = try ClaudeSettings.installing(connection, into: original.map { Data($0.utf8) })
 
-        for event in ["UserPromptSubmit", "Stop", "StopFailure", "SessionEnd"] {
+        let events = [
+            "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolBatch",
+            "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "Stop", "StopFailure", "SessionEnd",
+        ]
+        for event in events {
             let commands = try commands(in: installed, event: event)
             #expect(commands.count == 1)
             #expect(commands[0].contains("http://127.0.0.1:47800/hook/\(event)"))
@@ -90,7 +94,8 @@ private func commands(in settings: Data, event: String) throws -> [String] {
 
         #expect(try commands(in: installed, event: "Stop").first == "afplay /System/Library/Sounds/Glass.aiff")
         #expect(try commands(in: installed, event: "Stop").count == 2)
-        #expect(try commands(in: installed, event: "PreToolUse") == ["echo \"été ✓\" >> ~/log.txt"])
+        #expect(try commands(in: installed, event: "PreToolUse").first == "echo \"été ✓\" >> ~/log.txt")
+        #expect(try commands(in: installed, event: "PreToolUse").count == 2)
         #expect(text.contains("\"timeout\": 1.50"))
         #expect(text.contains("\"command\": \"~/.claude/statusline.sh\""))
         // Key order is the user's, not alphabetical.

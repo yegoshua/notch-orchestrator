@@ -152,7 +152,8 @@ public struct SessionCore {
                 record.activity = activity
                 if record.state != .working { record.enter(.working, at: time) }
             }
-        case "PostToolUse", "PostToolUseFailure":
+        case "PostToolUse", "PostToolBatch":
+            // A denied call reports no `PostToolUse` of its own, only the end of its batch.
             if let subagentID {
                 if let index = record.subagents.firstIndex(where: { $0.id == subagentID }) {
                     record.subagents[index].activity = nil
