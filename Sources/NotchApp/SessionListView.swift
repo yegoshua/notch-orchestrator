@@ -171,7 +171,9 @@ private struct SessionRow: View {
                         .font(Island.listTitle)
                         .foregroundStyle(Island.text)
                         .layoutPriority(1)
-                    Text(meta).font(Island.small).foregroundStyle(Island.text3)
+                    (Text(meta).foregroundColor(Island.text3)
+                        + Text(context.map { " · " + $0 } ?? "").foregroundColor(contextColor))
+                        .font(Island.small)
                 }
                 .frame(height: 17)
                 HStack(spacing: 6) {
@@ -237,7 +239,7 @@ private struct SessionRow: View {
     }
 
     private var meta: String {
-        [session.title == nil ? nil : session.project, session.location.originLabel, context]
+        [session.title == nil ? nil : session.project, session.location.originLabel]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -246,6 +248,17 @@ private struct SessionRow: View {
         if let used = session.context?.usedPercentage { return "\(LimitText.percent(used))% context" }
         guard let tokens = session.context?.tokens else { return nil }
         return tokens < 1000 ? "\(tokens) tokens" : "\(Int((Double(tokens) / 1000).rounded()))k tokens"
+    }
+
+    /// Stands out as the context fills up. Where only tokens are known the window is not, so
+    /// the steps are those of the smallest window a session can have, 200k.
+    private var contextColor: Color {
+        let used = session.context?.usedPercentage ?? session.context?.tokens.map { Double($0) / 2000 } ?? 0
+        switch used {
+        case ..<60: return Island.text3
+        case ..<85: return Island.waiting
+        default: return Island.failedText
+        }
     }
 
     private var activity: String {

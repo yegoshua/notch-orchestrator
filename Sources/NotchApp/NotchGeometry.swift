@@ -55,10 +55,11 @@ struct NotchGeometry: Equatable {
     /// the menu bar instead and was seen to stop short of the hardware (32 points there).
     static func notchHeight(screenFrame: CGRect, safeAreaTop: CGFloat) -> CGFloat {
         guard safeAreaTop > 0 else { return 0 }
-        // To the half point, which is a whole pixel on these displays.
-        let strip = ((screenFrame.height - screenFrame.width * 10 / 16) * 2).rounded() / 2
+        // To the half point, which is a whole pixel on these displays; and one pixel short of the
+        // strip, where the edge of the hardware was seen to lie.
+        let strip = ((screenFrame.height - screenFrame.width * 10 / 16) * 2).rounded() / 2 - 0.5
         // Should a display not follow the rule, the system's figure is the better guess.
-        return strip >= safeAreaTop && strip <= safeAreaTop + Island.notchBeyondSafeArea ? strip : safeAreaTop
+        return strip > safeAreaTop && strip <= safeAreaTop + Island.notchBeyondSafeArea ? strip : safeAreaTop
     }
 
     /// The part of `frame` the pointer has to rest on to open the list: what is drawn of the
