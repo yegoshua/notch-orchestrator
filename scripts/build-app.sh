@@ -1,6 +1,8 @@
 #!/bin/sh
-# Builds "Notch Orchestrator.app" into .build/app/ as a universal, ad-hoc signed bundle.
+# Builds "Notch Orchestrator.app" into .build/app/ as a universal bundle, ad-hoc signed by default.
 # Usage: scripts/build-app.sh [version]
+# NOTCH_SIGN_IDENTITY names the certificate to sign with instead: with the same certificate every
+# build is the same app to macOS, so the permissions granted to one carry over to the next.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -31,5 +33,5 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-codesign --force --sign - "$APP"
+codesign --force --sign "${NOTCH_SIGN_IDENTITY:--}" "$APP"
 echo "$APP"

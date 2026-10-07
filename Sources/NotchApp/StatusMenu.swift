@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SessionCore
 
 /// The menu bar item: connection state and the two connection actions.
@@ -45,6 +46,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         HotkeyMenu.shared.add(to: menu)
         addInterruptions(to: menu)
         addScreens(to: menu)
+        addLoginItem(to: menu)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
@@ -147,6 +149,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(screens)
     }
 
+    /// The system keeps the login item and may want the user to allow it in System Settings.
+    private func addLoginItem(to menu: NSMenu) {
+        let status = SMAppService.mainApp.status
+        let title = status == .requiresApproval ? "Start at Login (allow it in System Settings)" : "Start at Login"
+        add(title, #selector(toggleLoginItem), to: menu).state = status == .enabled ? .on : .off
+    }
+
     @discardableResult
     private func add(_ title: String, _ action: Selector, to menu: NSMenu) -> NSMenuItem {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
@@ -163,6 +172,20 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         guard let command = sender.representedObject as? String else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
+    }
+
+    @objc private func toggleLoginItem() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            // Refused by the system; the item shows the state it is left in.
+            NSSound.beep()
+        }
     }
 
     @objc private func setSound(_ sender: NSMenuItem) {
