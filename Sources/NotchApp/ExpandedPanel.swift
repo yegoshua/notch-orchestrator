@@ -5,7 +5,8 @@ import SwiftUI
 
 /// The session list that drops out of the notch. Hovering the notch or pressing the global hotkey
 /// opens it; the pointer leaving it closes it, and so does Escape or the hotkey when the hotkey
-/// opened it. It never takes keyboard focus.
+/// opened it. A click on its band pins it: then it stays until the band is clicked again, or
+/// Escape or the hotkey is pressed. It never takes keyboard focus.
 @MainActor
 final class ExpandedPanelController {
     private static let openDelay: TimeInterval = 0.12
@@ -26,6 +27,10 @@ final class ExpandedPanelController {
     /// Held only while a list opened by the hotkey is showing, so Escape works everywhere else as usual.
     private var escape: GlobalHotkey?
     private var pending: DispatchWorkItem?
+    /// Pinned open by a click on the band: the pointer leaving no longer closes it.
+    private var isPinned = false {
+        didSet { stage.isPinned = isPinned }
+    }
     /// Opened by hotkey with the pointer elsewhere: leaving only counts once the pointer has come in.
     private var pointerHasEntered = false
     /// Closed with the pointer still on the notch: it has to leave before hovering opens the list again.
@@ -65,6 +70,7 @@ final class ExpandedPanelController {
         })
         observers += IslandScreen.observe { [weak self] in self?.collapse(animated: false) }
         stage.onOpenSizeChange = { [weak self] in self?.fitWindow() }
+        stage.onBandClick = { [weak self] in self?.togglePin() }
         snapshotChanges = model.$snapshot.receive(on: DispatchQueue.main).sink { [weak self] snapshot in
             // A request card takes the place under the notch, at once.
             if !snapshot.raised.isEmpty { self?.collapse(animated: false) }
@@ -128,8 +134,22 @@ final class ExpandedPanelController {
         }
     }
 
+    private func togglePin() {
+        guard isExpanded else { return }
+        if isPinned { return collapse() }
+        isPinned = true
+        cancelPending()
+        // With the pointer free to leave, a key has to be able to close the list.
+        if escape == nil {
+            escape = GlobalHotkey(keyCode: HotkeySetting.escapeKeyCode, modifiers: 0) { [weak self] in
+                self?.collapse()
+            }
+        }
+    }
+
     /// Animated, the list returns into the notch before its window goes.
     private func collapse(animated: Bool = true) {
+        isPinned = false
         cancelPending()
         pointerPoll?.invalidate()
         pointerPoll = nil
@@ -178,7 +198,7 @@ final class ExpandedPanelController {
             if inside {
                 pointerHasEntered = true
                 cancelPending()
-            } else if pointerHasEntered, pending == nil {
+            } else if pointerHasEntered, !isPinned, pending == nil {
                 schedule(after: Self.closeDelay) { $0.collapse() }
             }
         } else {

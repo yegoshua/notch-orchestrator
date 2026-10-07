@@ -47,6 +47,10 @@ final class IslandWindowSizer {
 final class IslandStage: ObservableObject {
     /// Flipped by the controller; the island grows out of the notch or returns into it.
     @Published var isOpen = false
+    /// The user asked for the island to stay open; the band says so with a pin.
+    @Published var isPinned = false
+    /// The band of the open island was clicked.
+    var onBandClick: (() -> Void)?
     /// The island's size once it has grown, for telling whether the pointer is over it.
     private(set) var openSize = CGSize.zero
     var onOpenSizeChange: (() -> Void)?
@@ -90,9 +94,11 @@ struct IslandSurface<Content: View>: View {
             VStack(spacing: 0) {
                 BandRow(
                     counters: model.snapshot.counters, limit: model.limits.fiveHour,
-                    showsRing: model.connectionStatus != .notConnected)
+                    showsRing: model.connectionStatus != .notConnected, isPinned: stage.isPinned)
                     .padding(.horizontal, outline / 2 + (isWide ? Island.openPadding : Island.wingPadding))
                     .frame(height: bandHeight)
+                    .contentShape(Rectangle())
+                    .onTapGesture { stage.onBandClick?() }
                 content
                     .frame(width: width)
                     .fixedSize(horizontal: false, vertical: true)

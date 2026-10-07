@@ -252,13 +252,24 @@ struct BandRow: View {
     let limit: LimitWindow
     /// Without a connection no figure can arrive, so no ring is drawn.
     var showsRing = true
+    /// The open island was told to stay open.
+    var isPinned = false
 
     var body: some View {
         HStack(spacing: 0) {
             BandCounters(counters: counters)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Island.text3)
+                    .padding(.trailing, 8)
+                    .transition(.opacity)
+                    .accessibilityLabel("Stays open")
+            }
             if showsRing { LimitRing(window: limit) }
         }
+        .animation(Island.quick, value: isPinned)
     }
 }
 
