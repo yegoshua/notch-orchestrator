@@ -366,6 +366,7 @@ struct RequestCardView: View {
 
     private var questions: some View {
         VStack(alignment: .leading, spacing: 0) {
+            ScrollViewReader { scroll in
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(Array(request.questions.enumerated()), id: \.offset) { index, question in
@@ -383,11 +384,21 @@ struct RequestCardView: View {
                                 self.option(option, number: number + 1, question: index)
                             }
                         }
+                        .id(index)
                     }
                 }
             }
             .frame(maxHeight: 268)
             .fixedSize(horizontal: false, vertical: true)
+            // A question below the fold is easy to miss: once one is answered, the next one that
+            // still needs an answer comes into view.
+            .onChange(of: chosen) { before, after in
+                guard let next = unanswered.first, !request.questions.indices.contains(where: {
+                    request.questions[$0].allowsMultiple && before[$0] != after[$0]
+                }) else { return }
+                withAnimation(Island.content) { scroll.scrollTo(next, anchor: .top) }
+            }
+            }
             Spacer().frame(height: 14)
             HStack(spacing: 8) {
                 openButton
@@ -395,6 +406,11 @@ struct RequestCardView: View {
                 if answersAtOnce {
                     Text("To answer in your own words, reply in the session").font(Island.small).foregroundStyle(Island.text3)
                 } else {
+                    // Says why Submit does nothing yet, since the missing answer may be out of sight.
+                    if !isComplete {
+                        Text("\(request.questions.count - unanswered.count) of \(request.questions.count) answered")
+                            .font(Island.small).foregroundStyle(Island.text3)
+                    }
                     Button { decide(.answer(answers)) } label: { ButtonLabel(title: "Submit") }
                         .buttonStyle(IslandButtonStyle(kind: .primary))
                         .disabled(!isComplete)
@@ -453,7 +469,10 @@ struct RequestCardView: View {
         }
     }
 
-    private var isComplete: Bool { answers.allSatisfy { !$0.isEmpty } }
+    /// The questions nothing is chosen for yet.
+    private var unanswered: [Int] { answers.indices.filter { answers[$0].isEmpty } }
+
+    private var isComplete: Bool { unanswered.isEmpty }
 
     private func choose(_ label: String, for index: Int) {
         if answersAtOnce {

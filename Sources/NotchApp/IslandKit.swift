@@ -410,6 +410,8 @@ struct IslandButtonStyle: ButtonStyle {
                     case .primary:
                         shape.fill(isPressed ? AnyShapeStyle(Color(hex: 0xD6D5D0)) : AnyShapeStyle(LinearGradient(
                             colors: [Color(hex: 0xFBFAF7), Color(hex: 0xE3E2DD)], startPoint: .top, endPoint: .bottom)))
+                            // Unavailable, it must not look like the one thing to press.
+                            .opacity(isEnabled ? 1 : 0.16)
                     case .quiet:
                         shape.fill(Color.white.opacity(isLit ? 0.05 : 0))
                     }
@@ -422,7 +424,7 @@ struct IslandButtonStyle: ButtonStyle {
         }
 
         private func foreground(isLit: Bool) -> Color {
-            if !isEnabled { return Island.text4 }
+            if !isEnabled { return kind == .primary ? Island.text3 : Island.text4 }
             switch kind {
             case .primary: return Color(hex: 0x0A0A0A)
             case .quiet: return isLit ? Island.text : Island.text2
