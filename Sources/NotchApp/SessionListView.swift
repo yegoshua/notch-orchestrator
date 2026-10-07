@@ -13,8 +13,9 @@ struct SessionListView: View {
         static let subagentHeight: CGFloat = 18
         static let emptyHeight: CGFloat = 36
         static let padding: CGFloat = 8
-        /// Height of whatever sits under the list. Nothing yet.
-        static let footerHeight: CGFloat = 0
+        static let limitLineHeight: CGFloat = 16
+        /// The usage limits under the list: a divider and one line per window.
+        static let footerHeight: CGFloat = 9 + 2 * limitLineHeight
 
         static func height(of sessions: [Session], topInset: CGFloat) -> CGFloat {
             let rows = sessions.reduce(CGFloat(0)) {
@@ -45,13 +46,40 @@ struct SessionListView: View {
                     }
                 }
             }
-            // Footer: account-wide sections (usage limits and reset times) go here, below the
-            // list. Give them their height in `Metrics.footerHeight`.
+            LimitsFooter(limits: model.limits).frame(height: Metrics.footerHeight)
             Color.clear.frame(height: Metrics.padding)
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16).fill(.black))
+    }
+}
+
+/// Account-wide usage: both windows with their reset times and the age of the figures.
+private struct LimitsFooter: View {
+    let limits: LimitsSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Divider().overlay(Color(white: 0.25)).padding(.vertical, 4)
+            // The clock ticks here so that "updated … ago" and an expired window do not wait for a payload.
+            TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                VStack(alignment: .leading, spacing: 0) {
+                    line("5-hour limit", limits.fiveHour, now: timeline.date)
+                    line("Weekly limit", limits.sevenDay, now: timeline.date)
+                }
+            }
+        }
+    }
+
+    private func line(_ name: String, _ window: LimitWindow, now: Date) -> some View {
+        Text(LimitText.line(name, window, now: now))
+            .font(.system(size: 11))
+            .foregroundStyle(Color(white: 0.6))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: SessionListView.Metrics.limitLineHeight)
     }
 }
 
