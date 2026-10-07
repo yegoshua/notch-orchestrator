@@ -4,8 +4,9 @@ import AppKit
 struct NotchGeometry: Equatable {
     static let fallbackHeight: CGFloat = 24
 
-    /// The collapsed island: the notch plus one wing on each side, or the pill. The shoulders at
-    /// the notch reach a little further out on each side.
+    /// The most room the collapsed island may take: the notch plus one wing on each side, or the
+    /// pill. The shoulders at the notch reach a little further out on each side. What is drawn
+    /// is as wide as its content only.
     var frame: CGRect
     /// Zero on screens without a notch, where the island is a top-centre pill instead.
     var notchWidth: CGFloat
@@ -54,9 +55,24 @@ struct NotchGeometry: Equatable {
     /// the menu bar instead and was seen to stop short of the hardware (32 points there).
     static func notchHeight(screenFrame: CGRect, safeAreaTop: CGFloat) -> CGFloat {
         guard safeAreaTop > 0 else { return 0 }
-        let strip = screenFrame.height - screenFrame.width * 10 / 16
-        // Should a display ever not follow the rule, the system's figure is the better guess.
-        return strip >= safeAreaTop && strip <= safeAreaTop + 12 ? strip : safeAreaTop
+        // To the half point, which is a whole pixel on these displays.
+        let strip = ((screenFrame.height - screenFrame.width * 10 / 16) * 2).rounded() / 2
+        // Should a display not follow the rule, the system's figure is the better guess.
+        return strip >= safeAreaTop && strip <= safeAreaTop + Island.notchBeyondSafeArea ? strip : safeAreaTop
+    }
+
+    /// The part of `frame` the pointer has to rest on to open the list: what is drawn of the
+    /// collapsed island, given as its span inside the collapsed window, and the notch itself.
+    func hoverFrame(drawn span: ClosedRange<CGFloat>?) -> CGRect {
+        guard let span else { return hasNotch ? notchFrame : .zero }
+        let drawn = CGRect(
+            x: collapsedWindowFrame.minX + span.lowerBound, y: frame.minY,
+            width: span.upperBound - span.lowerBound, height: frame.height)
+        return hasNotch ? drawn.union(notchFrame) : drawn
+    }
+
+    private var notchFrame: CGRect {
+        CGRect(x: frame.midX - notchWidth / 2, y: frame.minY, width: notchWidth, height: frame.height)
     }
 
     init(screen: NSScreen) {

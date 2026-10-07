@@ -73,6 +73,8 @@ enum Island {
     /// outside, and this much between it and the notch.
     static let collapsedEdge: CGFloat = 8
     static let notchGap: CGFloat = 7
+    /// How much further down than the system's safe area a notch is believed to reach.
+    static let notchBeyondSafeArea: CGFloat = 6
     static let openPadding: CGFloat = 16
     static let cardWidth: CGFloat = 520
     static let listWidth: CGFloat = 540

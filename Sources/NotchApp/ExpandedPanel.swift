@@ -183,7 +183,7 @@ final class ExpandedPanelController {
             }
         } else {
             // The pointer has to rest on the notch for a moment; passing over it does nothing.
-            let onNotch = geometry.frame.contains(pointer)
+            let onNotch = geometry.hoverFrame(drawn: presence.collapsedSpan).contains(pointer)
             if !onNotch {
                 pointerMustLeaveNotch = false
                 cancelPending()

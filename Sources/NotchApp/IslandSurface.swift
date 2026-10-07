@@ -8,6 +8,9 @@ final class IslandPresence: ObservableObject {
     @Published var listIsOpen = false
     @Published var cardIsOpen = false
     @Published var lineIsOpen = false
+    /// How far the collapsed island is drawn, left to right inside its window. Nil while it is
+    /// not drawn at all.
+    var collapsedSpan: ClosedRange<CGFloat>?
 
     var isOpen: Bool { listIsOpen || cardIsOpen || lineIsOpen }
 }

@@ -31,7 +31,8 @@ struct CollapsedView: View {
     }
 
     var body: some View {
-        let edge = (geometry.hasNotch ? Island.shoulder : 0) + Island.collapsedEdge
+        // The round ends of the pill take more room than the shoulders at the notch.
+        let edge = geometry.hasNotch ? Island.shoulder + Island.collapsedEdge : 2 * Island.collapsedEdge
         let gap = geometry.hasNotch ? Island.notchGap : 0
         HStack(spacing: 0) {
             if hasSessions {
@@ -47,17 +48,30 @@ struct CollapsedView: View {
                     .padding(.trailing, edge)
             }
         }
-        .padding(.horizontal, geometry.hasNotch ? 0 : Island.collapsedEdge)
         .frame(maxHeight: .infinity)
         .background(IslandBody(radius: geometry.collapsedRadius, hasShoulders: geometry.hasNotch))
-        // The window is centred on the notch; so is the gap left for it, whatever stands beside it.
-        .frame(maxWidth: .infinity, alignment: Alignment(horizontal: .notchCentre, vertical: .center))
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: DrawnSpan.self, value: proxy.frame(in: .global))
+        })
+        // The window is centred on the notch; so is the gap left for it, whatever stands beside
+        // it. The pill is simply centred.
+        .frame(maxWidth: .infinity, alignment: geometry.hasNotch
+            ? Alignment(horizontal: .notchCentre, vertical: .center) : .center)
+        .onPreferenceChange(DrawnSpan.self) { frame in
+            presence.collapsedSpan = isVisible ? frame.minX...frame.maxX : nil
+        }
         .padding(.top, geometry.hasNotch ? 0 : Island.pillDrop)
         // An open island draws the same band in the same place and takes over from here.
         .opacity(isVisible && !presence.isOpen ? 1 : 0)
         .animation(Island.quick, value: isVisible)
         .animation(Island.settle, value: counters)
     }
+}
+
+/// Where the island is drawn inside its window.
+private struct DrawnSpan: PreferenceKey {
+    static let defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 private extension HorizontalAlignment {
