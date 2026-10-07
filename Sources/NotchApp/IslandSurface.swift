@@ -64,12 +64,16 @@ final class IslandStage: ObservableObject {
 }
 
 /// An island that opens below the notch: the band on top, `content` under it. It starts as the
-/// collapsed shape and stretches to its content, so that opening reads as the notch growing and
+/// collapsed island exactly as that is drawn, which is only as wide as what it shows and so
+/// seldom centred on the notch, and stretches to its content, so that opening reads as the notch growing and
 /// not as a popover appearing. It is drawn hanging from the top centre of a window that is
 /// somewhat larger than it.
 struct IslandSurface<Content: View>: View {
     @ObservedObject var model: AppModel
     @ObservedObject var stage: IslandStage
+    /// Read for where the collapsed island is drawn, which is where this one grows from and
+    /// returns to.
+    let presence: IslandPresence
     let geometry: NotchGeometry
     /// The width of the content, and of the island once open.
     let width: CGFloat
@@ -84,7 +88,17 @@ struct IslandSurface<Content: View>: View {
     private var bandHeight: CGFloat { geometry.frame.height }
     private var outline: CGFloat { geometry.hasNotch ? 2 * Island.shoulder : 0 }
     private var openHeight: CGFloat { min(bandHeight + contentHeight, maxHeight) }
-    private var islandWidth: CGFloat { (isWide ? width : geometry.frame.width) + outline }
+    private var islandWidth: CGFloat { isWide ? width + outline : restWidth }
+
+    /// The width of the collapsed island as drawn; its whole room while it is not drawn.
+    private var restWidth: CGFloat {
+        presence.collapsedSpan.map { $0.upperBound - $0.lowerBound } ?? geometry.frame.width + outline
+    }
+
+    /// How far the collapsed island's middle lies from the notch's.
+    private var restOffset: CGFloat {
+        presence.collapsedSpan.map { ($0.lowerBound + $0.upperBound - geometry.collapsedWindowFrame.width) / 2 } ?? 0
+    }
     private var islandHeight: CGFloat { isTall ? openHeight : bandHeight }
 
     var body: some View {
@@ -95,7 +109,7 @@ struct IslandSurface<Content: View>: View {
                 BandRow(
                     counters: model.snapshot.counters, limit: model.limits.fiveHour,
                     showsRing: model.connectionStatus != .notConnected, isPinned: stage.isPinned)
-                    .padding(.horizontal, outline / 2 + (isWide ? Island.openPadding : Island.wingPadding))
+                    .padding(.horizontal, isWide ? outline / 2 + Island.openPadding : geometry.collapsedEdge)
                     .frame(height: bandHeight)
                     .contentShape(Rectangle())
                     .onTapGesture { stage.onBandClick?() }
@@ -116,6 +130,7 @@ struct IslandSurface<Content: View>: View {
                 radius: isTall ? Island.openRadius : geometry.collapsedRadius, hasShoulders: geometry.hasNotch))
         }
         .frame(width: islandWidth, height: islandHeight)
+        .offset(x: isWide ? 0 : restOffset)
         .padding(.top, geometry.hasNotch ? 0 : Island.pillDrop)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // Content and edge move together when a card grows or the next one takes its place.

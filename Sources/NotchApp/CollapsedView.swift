@@ -31,8 +31,7 @@ struct CollapsedView: View {
     }
 
     var body: some View {
-        // The round ends of the pill take more room than the shoulders at the notch.
-        let edge = geometry.hasNotch ? Island.shoulder + Island.collapsedEdge : 2 * Island.collapsedEdge
+        let edge = geometry.collapsedEdge
         let gap = geometry.hasNotch ? Island.notchGap : 0
         HStack(spacing: 0) {
             if hasSessions {
@@ -58,7 +57,7 @@ struct CollapsedView: View {
         .frame(maxWidth: .infinity, alignment: geometry.hasNotch
             ? Alignment(horizontal: .notchCentre, vertical: .center) : .center)
         .onPreferenceChange(DrawnSpan.self) { frame in
-            presence.collapsedSpan = isVisible ? frame.minX...frame.maxX : nil
+            presence.collapsedSpan = isVisible && !frame.isNull ? frame.minX...frame.maxX : nil
         }
         .padding(.top, geometry.hasNotch ? 0 : Island.pillDrop)
         // An open island draws the same band in the same place and takes over from here.
@@ -70,8 +69,9 @@ struct CollapsedView: View {
 
 /// Where the island is drawn inside its window.
 private struct DrawnSpan: PreferenceKey {
-    static let defaultValue = CGRect.zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    static let defaultValue = CGRect.null
+    // Views that say nothing count as an empty rectangle and must not wipe out the one that does.
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = value.union(nextValue()) }
 }
 
 private extension HorizontalAlignment {

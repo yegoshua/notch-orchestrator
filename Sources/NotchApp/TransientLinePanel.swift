@@ -51,7 +51,7 @@ final class TransientLineController {
         let geometry = NotchGeometry(screen: screen)
         let width = geometry.frame.width + Island.lineGrowth
         let content = AnyView(IslandSurface(
-            model: model, stage: stage, geometry: geometry, width: width, maxHeight: Island.maxHeight
+            model: model, stage: stage, presence: presence, geometry: geometry, width: width, maxHeight: Island.maxHeight
         ) {
             TransientLineView(line: line)
         })

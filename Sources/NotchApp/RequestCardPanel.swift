@@ -86,7 +86,7 @@ final class RequestCardController {
             openInSession: { [weak self] in self?.openInSession(id) })
         let geometry = NotchGeometry(screen: screen)
         let content = AnyView(IslandSurface(
-            model: model, stage: stage, geometry: geometry, width: Island.cardWidth, maxHeight: Island.cardMaxHeight
+            model: model, stage: stage, presence: presence, geometry: geometry, width: Island.cardWidth, maxHeight: Island.cardMaxHeight
         ) {
             ZStack(alignment: .top) {
                 // A new identity per request, so nothing chosen for one card carries over to the

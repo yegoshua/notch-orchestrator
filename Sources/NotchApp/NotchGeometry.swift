@@ -15,6 +15,12 @@ struct NotchGeometry: Equatable {
 
     var collapsedRadius: CGFloat { hasNotch ? Island.collapsedRadius : Island.pillRadius }
 
+    /// How far inside its edge the collapsed island keeps what it shows. The round ends of the
+    /// pill take more room than the shoulders at the notch.
+    var collapsedEdge: CGFloat {
+        hasNotch ? Island.shoulder + Island.collapsedEdge : 2 * Island.collapsedEdge
+    }
+
     /// The window of the collapsed island.
     var collapsedWindowFrame: CGRect {
         hasNotch

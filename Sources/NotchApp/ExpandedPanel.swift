@@ -107,7 +107,7 @@ final class ExpandedPanelController {
         } else {
             let geometry = NotchGeometry(screen: screen)
             let list = IslandSurface(
-                model: model, stage: stage, geometry: geometry, width: Island.listWidth, maxHeight: Island.maxHeight
+                model: model, stage: stage, presence: presence, geometry: geometry, width: Island.listWidth, maxHeight: Island.maxHeight
             ) {
                 SessionListView(model: model, bandHeight: geometry.frame.height) { [weak self] session in
                     self?.jump(to: session)
