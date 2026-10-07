@@ -89,10 +89,10 @@ enum LimitText {
 
     /// When a window resets, as short as it can be said.
     static func resets(_ window: LimitWindow, now: Date) -> String? {
-        guard case .known(let reading) = window else { return nil }
-        return "resets " + (Calendar.current.isDate(reading.resetsAt, inSameDayAs: now)
-            ? reading.resetsAt.formatted(date: .omitted, time: .shortened)
-            : reading.resetsAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+        guard case .known(let reading) = window, let resetsAt = reading.resetsAt else { return nil }
+        return "resets " + (Calendar.current.isDate(resetsAt, inSameDayAs: now)
+            ? resetsAt.formatted(date: .omitted, time: .shortened)
+            : resetsAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
     }
 
     /// How old the figures are, by the fresher of the two windows.
@@ -129,14 +129,15 @@ enum LimitText {
             return "\(name): window reset \(time(at, now: now)), waiting for new data"
         case .known(let reading):
             let updated = reading.age < 60 ? "just now" : "\(shortAge(reading.age)) ago"
-            return "\(name): \(percent(reading.usedPercentage))% used, resets \(time(reading.resetsAt, now: now))"
+            let resets = reading.resetsAt.map { ", resets \(time($0, now: now))" } ?? ""
+            return "\(name): \(percent(reading.usedPercentage))% used\(resets)"
                 + " (updated \(updated)\(reading.isStale ? ", may be out of date" : ""))"
         }
     }
 
     /// Why there is no number, for the place that has room to say it.
     static let noDataExplanation =
-        "Limits appear after the first response in a Claude Code session (Pro and Max plans)"
+        "Limits appear after the first response in a Claude Code session, or once the Claude desktop app has measured them"
 
     private static func time(_ date: Date, now: Date) -> String {
         Calendar.current.isDate(date, inSameDayAs: now)

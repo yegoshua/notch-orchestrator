@@ -218,3 +218,151 @@ private func reading(_ window: LimitWindow) throws -> LimitReading {
         #expect(try reading(limits.snapshot(at: fiveHourReset.addingTimeInterval(600)).fiveHour).usedPercentage == 2)
     }
 }
+
+/// The history the desktop app keeps, shaped as it was found on a real machine.
+private let recordedHistory = """
+{"version": 2, "samples": [
+ {"t": 1791388834338, "org": "4d66bfa6", "u": {"fh": 23, "sd": 7}},
+ {"t": 1791389734344, "org": "4d66bfa6", "u": {"fh": 25, "sd": 8}},
+ {"t": 1791389370636, "org": "4d66bfa6", "u": {"fh": 24, "sd": 8}}]}
+"""
+
+@Suite struct ReadingLimitsFromTheDesktopAppsHistory {
+    @Test func theLatestSampleIsRead() throws {
+        let sample = try #require(UsageSample(desktopUsageHistory: Data(recordedHistory.utf8)))
+
+        #expect(sample == UsageSample(takenAt: Date(timeIntervalSince1970: 1_791_389_734.344), fiveHour: 25, sevenDay: 8))
+    }
+
+    @Test func aSampleWithOneWindowIsStillASample() throws {
+        let history = #"{"samples": [{"t": 1791389734344, "u": {"sd": 141}}, {"t": "soon", "u": {"fh": 1}}, {"u": {"fh": 2}}]}"#
+        let sample = try #require(UsageSample(desktopUsageHistory: Data(history.utf8)))
+
+        #expect(sample.fiveHour == nil)
+        #expect(sample.sevenDay == 100)
+    }
+
+    @Test(arguments: [#"{"version": 2, "samples": []}"#, #"{"samples": [{"t": 1, "u": {}}]}"#, #"{"version": 2}"#, "[]", "not json", ""])
+    func whatHoldsNoSampleIsNotRead(history: String) {
+        #expect(UsageSample(desktopUsageHistory: Data(history.utf8)) == nil)
+    }
+}
+
+@Suite struct LimitsMeasuredByTheDesktopApp {
+    private func sample(_ fiveHour: Double?, sevenDay: Double? = nil, at time: Date) -> UsageSample {
+        UsageSample(takenAt: time, fiveHour: fiveHour, sevenDay: sevenDay)
+    }
+
+    @Test func aMeasurementIsShownWithItsAgeAndNoResetTime() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(25, sevenDay: 8, at: now))
+
+        let snapshot = limits.snapshot(at: now.addingTimeInterval(120))
+
+        #expect(try reading(snapshot.fiveHour) == LimitReading(usedPercentage: 25, resetsAt: nil, age: 120, isStale: false))
+        #expect(try reading(snapshot.sevenDay) == LimitReading(usedPercentage: 8, resetsAt: nil, age: 120, isStale: false))
+    }
+
+    @Test func aLaterMeasurementReplacesAnEarlierOneEvenWhenLowerOrTheSame() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(80, at: now))
+        limits.handle(sample(2, at: now.addingTimeInterval(600)))
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(600)).fiveHour).usedPercentage == 2)
+
+        limits.handle(sample(2, at: now.addingTimeInterval(1200)))
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(1260)).fiveHour).age == 60)
+    }
+
+    @Test func anEarlierMeasurementChangesNothing() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(25, at: now))
+        limits.handle(sample(18, at: now.addingTimeInterval(-900)))
+        limits.handle(sample(25, at: now))
+
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(30)).fiveHour) == LimitReading(usedPercentage: 25, resetsAt: nil, age: 30, isStale: false))
+    }
+
+    @Test func aMeasurementWhoseWindowMustHaveEndedIsNoDataAnyMore() {
+        var limits = UsageLimits()
+        limits.handle(sample(25, sevenDay: 8, at: now))
+
+        let snapshot = limits.snapshot(at: now.addingTimeInterval(5 * 3600))
+
+        #expect(snapshot.fiveHour == .noData)
+        #expect(snapshot.sevenDay != .noData)
+    }
+
+    @Test func aMeasurementKeepsTheEndOfTheWindowASessionReported() throws {
+        var limits = UsageLimits()
+        limits.handle(report(fiveHour: 29.99), at: now)
+        // Whole percent: a little under the session's figure is still the same window.
+        limits.handle(sample(29, at: now.addingTimeInterval(300)))
+
+        let known = try reading(limits.snapshot(at: now.addingTimeInterval(300)).fiveHour)
+
+        #expect(known == LimitReading(usedPercentage: 29, resetsAt: fiveHourReset, age: 0, isStale: false))
+    }
+
+    @Test func aMeasurementFarBelowTheSessionsFigureIsANewWindowWithUnknownEnd() throws {
+        var limits = UsageLimits()
+        limits.handle(report(fiveHour: 80), at: now)
+        limits.handle(sample(3, at: now.addingTimeInterval(300)))
+
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(300)).fiveHour).resetsAt == nil)
+    }
+
+    @Test func aMeasurementTakenAfterTheReportedWindowEndedDropsItsEnd() throws {
+        var limits = UsageLimits()
+        limits.handle(report(fiveHour: 29), at: now)
+        limits.handle(sample(40, at: fiveHourReset.addingTimeInterval(60)))
+
+        let known = try reading(limits.snapshot(at: fiveHourReset.addingTimeInterval(60)).fiveHour)
+
+        #expect(known.usedPercentage == 40)
+        #expect(known.resetsAt == nil)
+    }
+
+    @Test func aSessionsReportTellsWhenTheMeasuredWindowEnds() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(25, at: now))
+        limits.handle(report(fiveHour: 25.4), at: now.addingTimeInterval(60))
+
+        let known = try reading(limits.snapshot(at: now.addingTimeInterval(60)).fiveHour)
+
+        // The figure is no news, so the reading is as old as the measurement.
+        #expect(known == LimitReading(usedPercentage: 25, resetsAt: fiveHourReset, age: 60, isStale: false))
+    }
+
+    @Test func aSessionsHigherReportReplacesTheMeasurement() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(25, at: now))
+        limits.handle(report(fiveHour: 31), at: now.addingTimeInterval(60))
+
+        #expect(try reading(limits.snapshot(at: now.addingTimeInterval(60)).fiveHour) == LimitReading(usedPercentage: 31, resetsAt: fiveHourReset, age: 0, isStale: false))
+    }
+
+    @Test func anIdleSessionsReportOfAWindowThatEndedBeforeTheMeasurementIsIgnored() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(4, at: fiveHourReset.addingTimeInterval(600)))
+        limits.handle(report(fiveHour: 90), at: fiveHourReset.addingTimeInterval(700))
+
+        #expect(try reading(limits.snapshot(at: fiveHourReset.addingTimeInterval(700)).fiveHour) == LimitReading(usedPercentage: 4, resetsAt: nil, age: 100, isStale: false))
+    }
+
+    @Test func aReportOfAWindowThatBeganAfterTheMeasurementReplacesIt() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(90, at: fiveHourReset.addingTimeInterval(-6 * 3600)))
+        limits.handle(report(fiveHour: 5), at: now)
+
+        #expect(try reading(limits.snapshot(at: now).fiveHour) == LimitReading(usedPercentage: 5, resetsAt: fiveHourReset, age: 0, isStale: false))
+    }
+
+    @Test func measurementsSurviveBeingStored() throws {
+        var limits = UsageLimits()
+        limits.handle(sample(25, sevenDay: 8, at: now))
+
+        let restored = try JSONDecoder().decode(UsageLimits.self, from: JSONEncoder().encode(limits))
+
+        #expect(restored.snapshot(at: now) == limits.snapshot(at: now))
+    }
+}

@@ -40,8 +40,8 @@ final class AppModel: ObservableObject {
         if let stored = try? Data(contentsOf: config.usageLimitsFile),
            let usage = try? JSONDecoder().decode(UsageLimits.self, from: stored) {
             self.usage = usage
-            limits = usage.snapshot(at: Date())
         }
+        refreshLimits()
     }
 
     func start() {
@@ -230,8 +230,25 @@ final class AppModel: ObservableObject {
         storeLimits()
     }
 
+    /// When the desktop app's usage history was last seen to change.
+    private var usageHistoryModified = Date.distantPast
+
+    /// Desktop sessions run no status line, so the desktop app's own measurements are read as
+    /// well. The history is read again only after it changed.
+    private func readDesktopUsage() {
+        let file = config.claudeDesktopUsageHistory
+        guard let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+              modified != usageHistoryModified
+        else { return }
+        usageHistoryModified = modified
+        guard let sample = (try? Data(contentsOf: file)).flatMap(UsageSample.init(desktopUsageHistory:)) else { return }
+        usage.handle(sample)
+        storeLimits()
+    }
+
     /// Also run on the timer: readings age, go stale and expire without any payload arriving.
     private func refreshLimits() {
+        readDesktopUsage()
         let next = usage.snapshot(at: Date())
         if next != limits { limits = next }
     }

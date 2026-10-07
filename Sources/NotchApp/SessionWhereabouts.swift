@@ -3,6 +3,14 @@ import Darwin
 import SessionCore
 
 extension AppConfig {
+    /// Where the Claude desktop app keeps its own measurements of the account's usage. The app
+    /// only reads there. `-claudeDesktopUsageHistory …` points it elsewhere.
+    var claudeDesktopUsageHistory: URL {
+        UserDefaults.standard.string(forKey: "claudeDesktopUsageHistory").map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Claude/plan-usage-history.json")
+    }
+
     /// Where the Claude desktop app keeps one record per Code session. The app only reads there.
     /// `-claudeDesktopSessionsDirectory …` points it elsewhere.
     var claudeDesktopSessionsDirectory: URL {
