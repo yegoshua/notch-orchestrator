@@ -15,3 +15,22 @@ Default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Development
+
+```bash
+swift build                 # type-check and build everything
+swift test                  # session core and connection installer tests
+swift test --filter SessionCoreTests
+scripts/build-app.sh        # universal, ad-hoc signed bundle in .build/app/
+```
+
+Layout: `Sources/SessionCore` (pure state, tested against `fixtures/`), `Sources/ClaudeConnection` (settings transformation and installer, tested), `Sources/NotchApp` (receiver, overlay, menu; verified by hand).
+
+On launch the app writes its hook entries into `~/.claude/settings.json`. When running a development build, point it somewhere else so it cannot affect real sessions:
+
+```bash
+".build/app/Notch Orchestrator.app/Contents/MacOS/NotchApp" \
+  -claudeSettingsPath /path/to/test-project/.claude/settings.json \
+  -supportDirectory /tmp/notch-support -port 47811
+```
