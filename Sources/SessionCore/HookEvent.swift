@@ -25,10 +25,13 @@ public struct HookEvent: Equatable, Sendable {
         public var name: String
         /// The one input that says what the call is about: the command, the file, the pattern.
         public var subject: String?
+        /// The whole input, as Claude Code sent it.
+        public var input: JSONValue?
 
-        public init(name: String, subject: String? = nil) {
+        public init(name: String, subject: String? = nil, input: JSONValue? = nil) {
             self.name = name
             self.subject = subject
+            self.input = input
         }
     }
 
@@ -84,7 +87,9 @@ public struct HookEvent: Equatable, Sendable {
             source: object["source"] as? String,
             prompt: object["prompt"] as? String,
             tool: (object["tool_name"] as? String).map {
-                Tool(name: $0, subject: Self.subject(of: object["tool_input"] as? [String: Any] ?? [:]))
+                Tool(
+                    name: $0, subject: Self.subject(of: object["tool_input"] as? [String: Any] ?? [:]),
+                    input: object["tool_input"].flatMap(JSONValue.init))
             },
             agentID: object["agent_id"] as? String,
             agentType: object["agent_type"] as? String,

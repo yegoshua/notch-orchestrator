@@ -26,6 +26,16 @@ Driven through a pseudo-terminal (`prototype/hooks/tui-real.py`), so the "human"
 Noise to expect in every sequence: a `SubagentStop` with an empty `agent_type` about 2 s after many
 `Stop`s (an internal helper agent, not a user-visible subagent), and three `InstructionsLoaded` per start.
 
+## `sim/` — scripted fake model, real client
+
+Copied from `prototype/hooks/logs/recorded/` (see the README there). The client and its hook traffic are
+real; the model, the prompts and the tool calls are scripted. Used only where no real-model recording
+kept the response body.
+
+| File | What it is | Notable |
+| --- | --- | --- |
+| `tui-question-answered-by-hook` | interactive TUI 2.1.236, `AskUserQuestion` answered through the held PermissionRequest (`mock-tui-2.1.236-askuserquestion-permissionrequest-pick`) | the answer travels as `decision.updatedInput` = the original input plus `answers`; PostToolUse then carries the same input with the answers |
+
 ## Not recorded
 
 - **Desktop app sequences: none.** The desktop checks were deferred. The closest material is

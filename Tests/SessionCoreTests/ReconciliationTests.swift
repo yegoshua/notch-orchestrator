@@ -17,9 +17,9 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
 @Suite struct LostEvents {
     @Test func aKilledSessionStaysWorkingForHooksAlone() throws {
         var core = SessionCore()
-        let at = try Fixture("cli/cli-killed").play(into: &core)
+        let at = try Fixture("cli/cli-killed").play(into: &core) { $0.event.name == "PreToolUse" }
 
-        // The recording simply stops: there is no Stop and no SessionEnd.
+        // Up to the start of its tool call: a process killed there sends no Stop and no SessionEnd.
         #expect(core.snapshot(at: at + 3600).counters == Counters(working: 1))
     }
 
@@ -46,7 +46,7 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         let fixture = try Fixture("cli/cli-permission-native-no")
         let asked = fixture.play(into: &core) { $0.event.name == "PermissionRequest" }
         let id = fixture.steps[0].event.sessionID
-        #expect(core.snapshot(at: asked).counters == Counters(working: 1))
+        #expect(core.snapshot(at: asked).counters == Counters(waiting: 1))
 
         // The human pressed No and Esc: the transcript closes the turn, no hook says so.
         core.reconcile(observation(id, .alive, turnEnded, at: asked + 2), observedAt: asked + 5)
@@ -220,7 +220,7 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         core.reconcile(observation(id, .unknown, .inProgress, at: at), observedAt: at + 5)
         core.reconcile(observation(id, .alive), observedAt: at + 6)
 
-        #expect(core.snapshot(at: at + 6).sessions.map(\.state) == [.working])
+        #expect(core.snapshot(at: at + 6).sessions.map(\.state) == [.waitingForPermission])
     }
 
     @Test func aTurnThatEndedWithSubagentsStillRunningKeepsWorking() throws {

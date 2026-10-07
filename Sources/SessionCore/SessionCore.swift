@@ -2,20 +2,26 @@ import Foundation
 
 public enum SessionState: Equatable, Sendable {
     case working
+    /// A tool call is held until the user allows or denies it.
+    case waitingForPermission
+    /// The agent asked a multiple-choice question.
+    case waitingForAnswer
     case finishedTurn
     case failed
     /// Something is going on that could not be confirmed. Never counted and never "needs the user".
     case unknown
 
-    /// Whether a session in this state is blocked on the user. States that wait for a permission
-    /// or an answer belong here.
-    public var needsUser: Bool { self == .failed }
+    /// Whether a session in this state is blocked on the user.
+    public var needsUser: Bool { self == .failed || isWaiting }
+
+    /// Whether the session waits for a permission or an answer.
+    public var isWaiting: Bool { self == .waitingForPermission || self == .waitingForAnswer }
 
     /// Position in the list: what needs the user, then what is busy, then what is done.
     var rank: Int {
         if needsUser { return 0 }
         switch self {
-        case .working: return 1
+        case .working, .waitingForPermission, .waitingForAnswer: return 1
         case .finishedTurn, .failed: return 2
         case .unknown: return 3
         }
@@ -48,11 +54,14 @@ public struct Session: Equatable, Sendable {
 }
 
 public struct Counters: Equatable, Sendable {
+    /// Sessions waiting for a permission or an answer.
+    public var waiting: Int
     public var working: Int
     public var finished: Int
     public var failed: Int
 
-    public init(working: Int = 0, finished: Int = 0, failed: Int = 0) {
+    public init(waiting: Int = 0, working: Int = 0, finished: Int = 0, failed: Int = 0) {
+        self.waiting = waiting
         self.working = working
         self.finished = finished
         self.failed = failed
@@ -64,6 +73,8 @@ public struct Snapshot: Equatable, Sendable {
     /// within each, oldest state change first.
     public var sessions: [Session]
     public var counters: Counters
+    /// Requests waiting for the user's decision, across all sessions, in the order they arrived.
+    public var requests: [PendingRequest]
 }
 
 public struct Settings: Equatable, Sendable {
@@ -72,10 +83,17 @@ public struct Settings: Equatable, Sendable {
     /// How long a turn may show no sign of life before it stops counting as working, when no
     /// process confirms that it is still going.
     public var unconfirmedWorkTimeout: TimeInterval
+    /// How long a request may go unanswered before it is given back to Claude Code's own dialog
+    /// with no decision. Has to stay well below the time Claude Code lets the hook wait.
+    public var requestTimeout: TimeInterval
 
-    public init(livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180) {
+    public init(
+        livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180,
+        requestTimeout: TimeInterval = 300
+    ) {
         self.livenessThreshold = livenessThreshold
         self.unconfirmedWorkTimeout = unconfirmedWorkTimeout
+        self.requestTimeout = requestTimeout
     }
 }
 
@@ -86,6 +104,10 @@ public struct SessionCore {
     /// When sessions that reported their end did so. An observation made before that moment
     /// describes a session that is no longer there.
     private var endedAt: [String: Date] = [:]
+    /// Ends of requests nobody has collected yet.
+    private var resolutions: [Resolution] = []
+    /// Numbers requests in the order they arrived; two may arrive in the same instant.
+    private var requestCount = 0
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -105,10 +127,34 @@ public struct SessionCore {
         var subagents: [Subagent] = []
         /// Tasks of `Agent` calls whose subagent has not reported its start yet, oldest first.
         var pendingAgentTasks: [String?] = []
+        /// Requests not known to be settled, oldest first, including those handed back to the
+        /// session's own dialog. While there is one the session waits.
+        var requests: [Request] = []
+        /// When the turn began that the session will go back to once it stops waiting.
+        var interruptedTurnBegan: Date?
+        /// The state is `unknown` because a request ran out of time. The transcript still ending
+        /// in that tool call is then no sign of work.
+        var gaveUpWaiting = false
 
         mutating func enter(_ state: SessionState, at time: Date) {
             self.state = state
             since = time
+            gaveUpWaiting = false
+        }
+
+        /// Brings the state in line with the open requests: waiting while there is one, back in
+        /// the interrupted turn when the last one went.
+        mutating func requestsChanged(at time: Date) {
+            if let oldest = requests.first {
+                if state?.isWaiting != true {
+                    interruptedTurnBegan = state == .working ? since : nil
+                    since = time
+                }
+                state = oldest.questions.isEmpty ? .waitingForPermission : .waitingForAnswer
+                gaveUpWaiting = false
+            } else if state?.isWaiting == true {
+                enter(.working, at: interruptedTurnBegan ?? time)
+            }
         }
 
         mutating func endTurn() {
@@ -118,11 +164,29 @@ public struct SessionCore {
         }
     }
 
+    /// A request as the core keeps it.
+    private struct Request {
+        var id: String
+        var order: Int
+        /// The subagent that asked; nil for the session itself.
+        var agentID: String?
+        var toolName: String
+        var input: JSONValue?
+        var questions: [Question]
+        var arrivedAt: Date
+        /// Set once the user left the request to the session's own dialog. Its connection is
+        /// released by then; what remains is the knowledge that the session waits.
+        var handedBackAt: Date?
+    }
+
     // MARK: Hook events
 
-    public mutating func handle(_ event: HookEvent, at time: Date) {
-        prune(at: time)
+    /// Takes in a hook event. A `PermissionRequest` whose connection is held open comes with the
+    /// `requestID` its resolution is to carry.
+    public mutating func handle(_ event: HookEvent, at time: Date, requestID: String? = nil) {
+        advance(to: time)
         if event.name == "SessionEnd" {
+            release(records[event.sessionID]?.requests ?? [])
             records[event.sessionID] = nil
             endedAt[event.sessionID] = time
             return
@@ -134,8 +198,21 @@ public struct SessionCore {
         record.cwd = event.cwd ?? record.cwd
         record.transcriptPath = event.transcriptPath ?? record.transcriptPath
         let subagentID = event.agentID.flatMap { $0.isEmpty ? nil : $0 }
+        settle(&record, by: event, from: subagentID, at: time)
 
         switch event.name {
+        case "PermissionRequest":
+            guard let requestID else { break }
+            guard let tool = event.tool else {
+                // Nothing to show the user: Claude Code's own dialog has to do.
+                resolutions.append(Resolution(requestID: requestID, outcome: .noDecision))
+                break
+            }
+            requestCount += 1
+            record.requests.append(Request(
+                id: requestID, order: requestCount, agentID: subagentID, toolName: tool.name, input: tool.input,
+                questions: RequestPresentation.questions(tool: tool.name, input: tool.input), arrivedAt: time))
+            record.requestsChanged(at: time)
         case "SessionStart":
             if event.source == "compact" {
                 record.activity = nil
@@ -170,7 +247,8 @@ public struct SessionCore {
                     record.pendingAgentTasks.append(tool.subject)
                 }
                 record.activity = activity
-                if record.state != .working { record.enter(.working, at: time) }
+                // A call that starts next to one that waits for permission changes nothing about the wait.
+                if record.state != .working, record.requests.isEmpty { record.enter(.working, at: time) }
             }
         case "PostToolUse", "PostToolBatch":
             // A denied call reports no `PostToolUse` of its own, only the end of its batch.
@@ -222,7 +300,136 @@ public struct SessionCore {
         default:
             break
         }
+        // A subagent may still be asking when its session's own turn moves on.
+        record.requestsChanged(at: time)
         records[event.sessionID] = record
+    }
+
+    /// Removes the requests `event` shows to be settled outside the app. The request payload has
+    /// no call identifier and nothing cancels a held hook when the human answers in the session,
+    /// so this is the only way to learn of it.
+    private mutating func settle(_ record: inout Record, by event: HookEvent, from subagentID: String?, at time: Date) {
+        guard !record.requests.isEmpty else { return }
+        var settled: [Request] = []
+        func take(where isSettled: (Request) -> Bool) {
+            settled += record.requests.filter(isSettled)
+            record.requests.removeAll(where: isSettled)
+        }
+        switch event.name {
+        case "PostToolUse":
+            // The call ran, so it was allowed.
+            if let tool = event.tool, let index = record.requests.firstIndex(where: {
+                RequestPresentation.isSameCall($0.toolName, $0.input, as: tool)
+            }) {
+                settled.append(record.requests.remove(at: index))
+            }
+        case "PostToolBatch":
+            // Every call of the batch has run or was refused.
+            take { $0.agentID == subagentID }
+        case "UserPromptSubmit", "Stop", "StopFailure":
+            take { $0.agentID == nil }
+        case "SubagentStop":
+            take { $0.agentID != nil && $0.agentID == subagentID }
+        case "SessionStart" where event.source != "compact":
+            take { _ in true }
+        default:
+            return
+        }
+        release(settled)
+        record.requestsChanged(at: time)
+    }
+
+    // MARK: Requests
+
+    /// Applies the user's decision to a request in the queue. A request that is no longer there,
+    /// or a decision that does not fit it, changes nothing.
+    public mutating func decide(_ decision: Decision, on requestID: String, at time: Date) {
+        advance(to: time)
+        guard let (sessionID, index) = locate(requestID), var record = records[sessionID] else { return }
+        let request = record.requests[index]
+        let outcome: Outcome
+        switch decision {
+        case .handBack:
+            record.requests[index].handedBackAt = time
+            resolutions.append(Resolution(requestID: requestID, outcome: .noDecision))
+            records[sessionID] = record
+            return
+        case .allow:
+            // A question is answered, not allowed.
+            guard request.questions.isEmpty else { return }
+            outcome = .allow(updatedInput: nil)
+        case .deny(let explanation):
+            let message = explanation?.trimmingCharacters(in: .whitespacesAndNewlines)
+            outcome = .deny(message: message?.isEmpty == false ? message : nil)
+        case .answer(let choices):
+            guard let input = RequestPresentation.answered(request.input, questions: request.questions, with: choices)
+            else { return }
+            outcome = .allow(updatedInput: input)
+        }
+        record.requests.remove(at: index)
+        resolutions.append(Resolution(requestID: requestID, outcome: outcome))
+        // The decision is news about the session as much as a hook is.
+        record.lastEventAt = max(record.lastEventAt, time)
+        record.requestsChanged(at: time)
+        records[sessionID] = record
+    }
+
+    /// The client closed the held connection of a request before any answer: the human refused
+    /// the call in the session's own dialog, or the session is gone.
+    public mutating func connectionDropped(_ requestID: String, at time: Date) {
+        advance(to: time)
+        guard let (sessionID, index) = locate(requestID), var record = records[sessionID] else { return }
+        release([record.requests.remove(at: index)])
+        record.requestsChanged(at: time)
+        records[sessionID] = record
+    }
+
+    /// Lets time pass: a request nobody answered in time is given back with no decision, never
+    /// answered for the user, and its session is from then on unknown rather than waiting.
+    public mutating func advance(to time: Date) {
+        for id in Array(records.keys) {
+            guard var record = records[id], !record.requests.isEmpty else { continue }
+            func deadline(_ request: Request) -> Date {
+                (request.handedBackAt ?? request.arrivedAt).addingTimeInterval(settings.requestTimeout)
+            }
+            let expired = record.requests.filter { deadline($0) <= time }
+            guard let gaveUpAt = expired.map(deadline).max() else { continue }
+            record.requests.removeAll { deadline($0) <= time }
+            release(expired)
+            if record.requests.isEmpty {
+                record.enter(.unknown, at: gaveUpAt)
+                record.gaveUpWaiting = true
+                record.activity = nil
+            } else {
+                record.requestsChanged(at: time)
+            }
+            records[id] = record
+        }
+        prune(at: time)
+    }
+
+    /// Hands out, once, the ends of requests reached since the last call. Whoever holds the
+    /// connections collects them after every input and delivers each to its connection.
+    public mutating func drainResolutions() -> [Resolution] {
+        defer { resolutions = [] }
+        return resolutions
+    }
+
+    /// A request still in the queue.
+    private func locate(_ requestID: String) -> (sessionID: String, index: Int)? {
+        for record in records.values {
+            if let index = record.requests.firstIndex(where: { $0.id == requestID && $0.handedBackAt == nil }) {
+                return (record.id, index)
+            }
+        }
+        return nil
+    }
+
+    /// Requests that went without the user deciding: their connections, where still held, are let
+    /// go with no decision. One that was handed back has been let go already.
+    private mutating func release(_ requests: [Request]) {
+        resolutions += requests.filter { $0.handedBackAt == nil }
+            .map { Resolution(requestID: $0.id, outcome: .noDecision) }
     }
 
     // MARK: Reconciliation
@@ -235,6 +442,7 @@ public struct SessionCore {
         if let known, known.lastEventAt > time { return }
         if known == nil, let ended = endedAt[observation.sessionID], ended >= time { return }
         if observation.process == .dead {
+            release(known?.requests ?? [])
             records[observation.sessionID] = nil
             return
         }
@@ -255,16 +463,21 @@ public struct SessionCore {
             case .ended(let pending): closed = pending == 0 || (pending == nil && record.subagents.isEmpty)
             }
             switch (tail.turn, record.state) {
-            case (.inProgress, .working):
+            case (.inProgress, .working), (.inProgress, .waitingForPermission), (.inProgress, .waitingForAnswer):
+                // A call that waits for the user is in progress as far as the transcript can tell.
                 break
-            case (.inProgress, nil) where known == nil, (.inProgress, .unknown):
+            case (.inProgress, nil) where known == nil, (.inProgress, .unknown) where !record.gaveUpWaiting:
                 record.enter(confirmed ? .working : .unknown, at: tail.at)
             case (.inProgress, _) where tail.at > record.since:
                 // A turn the hooks did not announce.
                 record.enter(confirmed ? .working : .unknown, at: tail.at)
             case (.ended, .working) where closed && tail.at >= record.since,
+                 (.ended, .waitingForPermission) where closed && tail.at >= record.since,
+                 (.ended, .waitingForAnswer) where closed && tail.at >= record.since,
                  (.ended, .unknown) where closed:
-                // A turn the hooks did not close.
+                // A turn the hooks did not close. Whatever it was asking went with it.
+                release(record.requests)
+                record.requests = []
                 record.enter(.finishedTurn, at: tail.at)
                 record.endTurn()
             case (.ended, nil) where known == nil && closed:
@@ -299,28 +512,51 @@ public struct SessionCore {
     // MARK: Snapshot
 
     public func snapshot(at time: Date) -> Snapshot {
+        // Requests run out of time whether or not anybody told the core that time has passed.
+        var current = self
+        current.advance(to: time)
+        return current.currentSnapshot(at: time)
+    }
+
+    private func currentSnapshot(at time: Date) -> Snapshot {
+        func title(_ record: Record) -> String? { record.observedTitle ?? record.firstPrompt }
+        var queue: [(order: Int, request: PendingRequest)] = []
+        for record in records.values {
+            for request in record.requests where request.handedBackAt == nil {
+                let shown = PendingRequest(
+                    id: request.id, sessionID: record.id, sessionTitle: title(record),
+                    project: record.cwd.map { ($0 as NSString).lastPathComponent },
+                    toolName: request.toolName, detail: RequestPresentation.detail(of: request.input),
+                    excerpt: RequestPresentation.excerpt(of: request.input), questions: request.questions,
+                    arrivedAt: request.arrivedAt)
+                queue.append((request.order, shown))
+            }
+        }
+        let requests = queue.sorted { $0.order < $1.order }.map(\.request)
         let live = records.values
             .compactMap { record -> Session? in
                 guard let state = record.state, isLive(state, since: record.since, at: time) else { return nil }
                 return Session(
                     id: record.id, state: state, since: record.since, cwd: record.cwd,
-                    title: record.observedTitle ?? record.firstPrompt, activity: record.activity,
+                    title: title(record), activity: record.activity,
                     subagents: record.subagents)
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
         return Snapshot(
             sessions: live,
             counters: Counters(
+                waiting: live.filter { $0.state.isWaiting }.count,
                 working: live.filter { $0.state == .working }.count,
                 finished: live.filter { $0.state == .finishedTurn }.count,
                 failed: live.filter { $0.state == .failed }.count
-            )
+            ),
+            requests: requests
         )
     }
 
     private func isLive(_ state: SessionState, since: Date, at time: Date) -> Bool {
         switch state {
-        case .working: true
+        case .working, .waitingForPermission, .waitingForAnswer: true
         case .finishedTurn, .failed, .unknown: time.timeIntervalSince(since) < settings.livenessThreshold
         }
     }

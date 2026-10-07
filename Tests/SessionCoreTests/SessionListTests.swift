@@ -6,7 +6,7 @@ import SessionCore
     @Test func aSessionCarriesItsProjectTitleStateActivityAndStartOfTurn() throws {
         var core = SessionCore()
         let fixture = try Fixture("cli/cli-killed")
-        let at = fixture.play(into: &core)
+        let at = fixture.play(into: &core) { $0.event.name == "PreToolUse" }
         let prompted = fixture.steps.first { $0.event.name == "UserPromptSubmit" }!.at
 
         let session = try #require(core.snapshot(at: at).sessions.first)

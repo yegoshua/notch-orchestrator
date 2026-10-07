@@ -111,7 +111,7 @@ private struct SessionRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text(Self.elapsed(from: session.since, to: now, ago: session.state != .working))
+                Text(Self.elapsed(from: session.since, to: now, ago: session.state != .working && !session.state.isWaiting))
                     .font(.system(size: 11).monospacedDigit())
                     .foregroundStyle(Color(white: 0.6))
             }
@@ -135,6 +135,8 @@ private struct SessionRow: View {
         let label: String
         switch session.state {
         case .working: label = "Working"
+        case .waitingForPermission: label = "Waiting for permission"
+        case .waitingForAnswer: label = "Waiting for an answer"
         case .finishedTurn: label = "Finished"
         case .failed: label = "Failed"
         case .unknown: label = "Unknown"
@@ -166,7 +168,7 @@ private struct SessionRow: View {
 }
 
 /// The state as a shape, so it reads without relying on colour.
-private struct StateMark: View {
+struct StateMark: View {
     let state: SessionState
     @State private var turning = false
 
@@ -180,6 +182,10 @@ private struct StateMark: View {
                     .rotationEffect(.degrees(turning ? 360 : 0))
                     .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: turning)
                     .onAppear { turning = true }
+            case .waitingForPermission:
+                Image(systemName: "hand.raised.fill").font(.system(size: 10))
+            case .waitingForAnswer:
+                Image(systemName: "ellipsis.bubble.fill").font(.system(size: 10))
             case .finishedTurn:
                 Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy))
             case .failed:
@@ -194,6 +200,7 @@ private struct StateMark: View {
     static func color(_ state: SessionState) -> Color {
         switch state {
         case .working: Color(red: 0.45, green: 0.68, blue: 1.0)
+        case .waitingForPermission, .waitingForAnswer: Color(red: 1.0, green: 0.82, blue: 0.25)
         case .finishedTurn: Color(red: 0.45, green: 0.85, blue: 0.55)
         case .failed: Color(red: 1.0, green: 0.62, blue: 0.30)
         case .unknown: Color(white: 0.55)
