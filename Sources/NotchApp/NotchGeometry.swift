@@ -48,14 +48,24 @@ struct NotchGeometry: Equatable {
         }
     }
 
+    /// How far the notch reaches down, in points. Displays with a notch are 16:10 below it: the
+    /// strip that holds the notch is what the screen is taller than that (74 of 2234 pixels on a
+    /// 16-inch MacBook Pro, so 37 points at its default scale). The system's safe area follows
+    /// the menu bar instead and was seen to stop short of the hardware (32 points there).
+    static func notchHeight(screenFrame: CGRect, safeAreaTop: CGFloat) -> CGFloat {
+        guard safeAreaTop > 0 else { return 0 }
+        let strip = screenFrame.height - screenFrame.width * 10 / 16
+        // Should a display ever not follow the rule, the system's figure is the better guess.
+        return strip >= safeAreaTop && strip <= safeAreaTop + 12 ? strip : safeAreaTop
+    }
+
     init(screen: NSScreen) {
-        // The system's figure for the notch follows the menu bar and can differ from what the
-        // hardware shows. `defaults write <bundle id> notchHeightAdjust -float 6` adds that much
-        // to the island's height at the notch; a negative value takes it off.
-        let inset = screen.safeAreaInsets.top
+        // `defaults write <bundle id> notchHeightAdjust -float 1` adds that much to the island's
+        // height at the notch, should a display not follow the rule; a negative value takes it off.
+        let height = Self.notchHeight(screenFrame: screen.frame, safeAreaTop: screen.safeAreaInsets.top)
         let adjust = max(-8, min(12, UserDefaults.standard.double(forKey: "notchHeightAdjust")))
         self.init(
-            screenFrame: screen.frame, safeAreaTop: inset > 0 ? inset + adjust : 0,
+            screenFrame: screen.frame, safeAreaTop: height > 0 ? height + adjust : 0,
             leftOfNotch: screen.auxiliaryTopLeftArea, rightOfNotch: screen.auxiliaryTopRightArea,
             menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
     }

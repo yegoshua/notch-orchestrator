@@ -69,10 +69,10 @@ enum Island {
 
     static let wingWidth: CGFloat = 92
     static let wingPadding: CGFloat = 10
-    /// With no session to count only the ring is left, and the island draws in around it: this
-    /// much of a wing stays, and the body ends this far inside the notch on the other side.
-    static let idleWingWidth: CGFloat = 64
-    static let idleTuck: CGFloat = 24
+    /// The collapsed island reaches only as far as what it shows: this much past it on the
+    /// outside, and this much between it and the notch.
+    static let collapsedEdge: CGFloat = 8
+    static let notchGap: CGFloat = 7
     static let openPadding: CGFloat = 16
     static let cardWidth: CGFloat = 520
     static let listWidth: CGFloat = 540
@@ -253,13 +253,28 @@ struct BandRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            BandCounters(counters: counters)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if showsRing { LimitRing(window: limit) }
+        }
+    }
+}
+
+/// The counters by state. Empty when there is nothing to count.
+struct BandCounters: View {
+    let counters: Counters
+    /// Nil leaves it to the room there is.
+    var showsFinished: Bool?
+
+    var body: some View {
+        if let showsFinished {
+            counterRow(showsFinished: showsFinished)
+        } else {
             ViewThatFits(in: .horizontal) {
                 counterRow(showsFinished: true)
                 // Too many kinds at once for a wing: what is merely done gives way.
                 counterRow(showsFinished: false)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if showsRing { LimitRing(window: limit) }
         }
     }
 
