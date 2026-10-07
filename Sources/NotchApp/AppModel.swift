@@ -49,6 +49,7 @@ final class AppModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshSnapshot() }
         }
+        startReconciling()
     }
 
     func repairConnection() {
@@ -108,5 +109,39 @@ final class AppModel: ObservableObject {
             return "Claude Code settings are not valid JSON; left untouched"
         }
         return error.localizedDescription
+    }
+
+    // MARK: Reconciliation (#6)
+
+    private lazy var probe: SessionProbe = ClaudeSessionProbe(directory: config.claudeDataDirectory)
+    private var reconcileTimer: Timer?
+    private var isReconciling = false
+
+    /// At launch the list is rebuilt from what is on disk; after that the sessions the core tracks
+    /// are checked against their process and transcript every few seconds.
+    private func startReconciling() {
+        reconcile(discover: true)
+        reconcileTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.reconcile(discover: false) }
+        }
+    }
+
+    private func reconcile(discover: Bool) {
+        guard !isReconciling else { return }
+        isReconciling = true
+        let tracked = core.trackedSessions
+        let probe = probe
+        let observedAt = Date()
+        DispatchQueue.global(qos: .utility).async {
+            let observations = probe.observe(tracked: tracked, discover: discover)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for observation in observations {
+                    self.core.reconcile(observation, observedAt: observedAt)
+                }
+                self.isReconciling = false
+                self.refreshSnapshot()
+            }
+        }
     }
 }
