@@ -69,6 +69,10 @@ enum Island {
 
     static let wingWidth: CGFloat = 92
     static let wingPadding: CGFloat = 10
+    /// With no session to count only the ring is left, and the island draws in around it: this
+    /// much of a wing stays, and the body ends this far inside the notch on the other side.
+    static let idleWingWidth: CGFloat = 64
+    static let idleTuck: CGFloat = 24
     static let openPadding: CGFloat = 16
     static let cardWidth: CGFloat = 520
     static let listWidth: CGFloat = 540

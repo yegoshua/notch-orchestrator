@@ -49,8 +49,11 @@ struct NotchGeometry: Equatable {
     }
 
     init(screen: NSScreen) {
+        // The system's figure for the notch can come out a little taller than the hardware looks.
+        // `defaults write <bundle id> notchHeightTrim -float 2` takes that much off.
+        let trim = max(0, min(8, UserDefaults.standard.double(forKey: "notchHeightTrim")))
         self.init(
-            screenFrame: screen.frame, safeAreaTop: screen.safeAreaInsets.top,
+            screenFrame: screen.frame, safeAreaTop: max(0, screen.safeAreaInsets.top - trim),
             leftOfNotch: screen.auxiliaryTopLeftArea, rightOfNotch: screen.auxiliaryTopRightArea,
             menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
     }

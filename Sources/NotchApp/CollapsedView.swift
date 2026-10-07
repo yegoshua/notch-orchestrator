@@ -9,11 +9,22 @@ struct CollapsedView: View {
     @ObservedObject var presence: IslandPresence
     let geometry: NotchGeometry
 
+    private var hasSessions: Bool {
+        let counters = model.snapshot.counters
+        return counters.waiting + counters.failed + counters.working + counters.finished > 0
+    }
+
     /// After "Remove Completely" nothing of the app should be left on screen.
     private var isVisible: Bool {
-        let counters = model.snapshot.counters
-        let hasSessions = counters.waiting + counters.failed + counters.working + counters.finished > 0
-        return hasSessions || model.connectionStatus != .notConnected
+        hasSessions || model.connectionStatus != .notConnected
+    }
+
+    /// How far the body draws in from each side while there is nothing to count. At the notch the
+    /// empty wing goes altogether, its edge hidden behind the hardware; the pill shrinks evenly.
+    private var idleInsets: (leading: CGFloat, trailing: CGFloat) {
+        guard !hasSessions else { return (0, 0) }
+        let spare = Island.wingWidth - Island.idleWingWidth
+        return geometry.hasNotch ? (Island.wingWidth + Island.shoulder + Island.idleTuck, spare) : (spare, spare)
     }
 
     var body: some View {
@@ -23,9 +34,12 @@ struct CollapsedView: View {
             .padding(.horizontal, (geometry.hasNotch ? Island.shoulder : 0) + Island.wingPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(IslandBody(radius: geometry.collapsedRadius, hasShoulders: geometry.hasNotch))
+            .padding(.leading, idleInsets.leading)
+            .padding(.trailing, idleInsets.trailing)
             .padding(.top, geometry.hasNotch ? 0 : Island.pillDrop)
             // An open island draws the same band in the same place and takes over from here.
             .opacity(isVisible && !presence.isOpen ? 1 : 0)
             .animation(Island.quick, value: isVisible)
+            .animation(Island.settle, value: hasSessions)
     }
 }
