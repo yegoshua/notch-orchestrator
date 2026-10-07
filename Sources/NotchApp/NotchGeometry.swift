@@ -49,11 +49,13 @@ struct NotchGeometry: Equatable {
     }
 
     init(screen: NSScreen) {
-        // The system's figure for the notch can come out a little taller than the hardware looks.
-        // `defaults write <bundle id> notchHeightTrim -float 2` takes that much off.
-        let trim = max(0, min(8, UserDefaults.standard.double(forKey: "notchHeightTrim")))
+        // The system's figure for the notch follows the menu bar and can differ from what the
+        // hardware shows. `defaults write <bundle id> notchHeightAdjust -float 6` adds that much
+        // to the island's height at the notch; a negative value takes it off.
+        let inset = screen.safeAreaInsets.top
+        let adjust = max(-8, min(12, UserDefaults.standard.double(forKey: "notchHeightAdjust")))
         self.init(
-            screenFrame: screen.frame, safeAreaTop: max(0, screen.safeAreaInsets.top - trim),
+            screenFrame: screen.frame, safeAreaTop: inset > 0 ? inset + adjust : 0,
             leftOfNotch: screen.auxiliaryTopLeftArea, rightOfNotch: screen.auxiliaryTopRightArea,
             menuBarHeight: screen.frame.maxY - screen.visibleFrame.maxY)
     }
