@@ -36,3 +36,5 @@ On launch the app writes its hook entries into `~/.claude/settings.json`. When r
 ```
 
 The reconciler reads `~/.claude` (session records and transcripts, read-only), so a development build lists the real sessions on the machine. `-claudeDataDirectory /path` points it elsewhere.
+
+A permission request the user ignores goes back to Claude Code's own dialog after five minutes. `-requestTimeoutSeconds 20` shortens that for a check by hand.
