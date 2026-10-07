@@ -70,7 +70,8 @@ enum FinishSound {
             switch self {
             case .flute, .clarinet, .horn: 0.32
             case .glint, .tick: 0.16
-            case .drop, .tap, .breath, .pluck, .pips: 0.24
+            case .pips: 0.12
+            case .drop, .tap, .breath, .pluck: 0.24
             }
         }
     }
@@ -85,7 +86,7 @@ enum FinishSound {
     /// Nil when a finished turn makes no sound.
     static var current: Voice? {
         get {
-            guard let stored = UserDefaults.standard.string(forKey: key) else { return .drop }
+            guard let stored = UserDefaults.standard.string(forKey: key) else { return .pips }
             return Voice(rawValue: stored)
         }
         set { UserDefaults.standard.set(newValue?.rawValue ?? "", forKey: key) }
