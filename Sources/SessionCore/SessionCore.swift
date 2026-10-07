@@ -199,6 +199,58 @@ public struct SessionCore {
         records[event.sessionID] = record
     }
 
+    // MARK: Reconciliation
+
+    /// Takes in what was observed about a session at `time`. Where it contradicts the hooks it wins,
+    /// unless the hooks have spoken since: an observation is only as good as the moment it was made.
+    /// A session the core has never heard of is rebuilt from the observation alone.
+    public mutating func reconcile(_ observation: Observation, observedAt time: Date) {
+        let known = records[observation.sessionID]
+        if let known, known.lastEventAt > time { return }
+        if observation.process == .dead {
+            records[observation.sessionID] = nil
+            return
+        }
+
+        var record = known ?? Record(id: observation.sessionID, since: time, lastEventAt: time)
+        record.cwd = record.cwd ?? observation.cwd
+        record.transcriptPath = record.transcriptPath ?? observation.transcriptPath
+        record.observedTitle = observation.title ?? record.observedTitle
+
+        if let tail = observation.transcript {
+            // Without a process behind it, a turn in progress is a guess.
+            let confirmed = observation.process == .alive
+            switch (tail.turn, record.state) {
+            case (.inProgress, .working):
+                break
+            case (.inProgress, nil) where known == nil, (.inProgress, .unknown):
+                record.enter(confirmed ? .working : .unknown, at: tail.at)
+            case (.inProgress, _) where tail.at > record.since:
+                // A turn the hooks did not announce.
+                record.enter(confirmed ? .working : .unknown, at: tail.at)
+            case (.ended(pendingBackgroundAgents: 0), .working) where tail.at >= record.since,
+                 (.ended(pendingBackgroundAgents: 0), .unknown):
+                // A turn the hooks did not close.
+                record.enter(.finishedTurn, at: tail.at)
+                record.endTurn()
+            case (.ended(pendingBackgroundAgents: 0), nil) where known == nil:
+                record.enter(.finishedTurn, at: tail.at)
+            case (.ended, nil) where known == nil:
+                // Background agents may or may not still be running: nothing here confirms either.
+                record.enter(.unknown, at: tail.at)
+            default:
+                break
+            }
+        }
+        // Only a session with something to show is worth remembering.
+        if known != nil || record.state != nil { records[observation.sessionID] = record }
+    }
+
+    /// Sessions reconciliation should look at: every one the core tracks, shown or not.
+    public var trackedSessions: [(id: String, transcriptPath: String?)] {
+        records.values.map { ($0.id, $0.transcriptPath) }
+    }
+
     // MARK: Snapshot
 
     public func snapshot(at time: Date) -> Snapshot {
