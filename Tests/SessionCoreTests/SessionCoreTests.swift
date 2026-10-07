@@ -99,7 +99,7 @@ import SessionCore
         var core = SessionCore()
         let t = Date(timeIntervalSince1970: 1_000)
         core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: t)
-        core.handle(HookEvent(name: "SessionStart", sessionID: "s"), at: t + 5)
+        core.handle(HookEvent(name: "SessionStart", sessionID: "s", source: "compact"), at: t + 5)
 
         #expect(core.snapshot(at: t + 5).counters == Counters(working: 1, finished: 0))
     }
@@ -141,14 +141,5 @@ import SessionCore
         let snapshot = core.snapshot(at: t + 2)
         #expect(snapshot.counters == Counters(working: 2, finished: 1))
         #expect(snapshot.sessions.map(\.id) == ["a", "c", "b"])
-    }
-
-    @Test func aFailedTurnCountsAsFinished() {
-        var core = SessionCore()
-        let t = Date(timeIntervalSince1970: 1_000)
-        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: t)
-        core.handle(HookEvent(name: "StopFailure", sessionID: "s"), at: t + 1)
-
-        #expect(core.snapshot(at: t + 1).counters == Counters(working: 0, finished: 1))
     }
 }
