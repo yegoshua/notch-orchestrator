@@ -4,8 +4,9 @@ import Foundation
 public struct TranscriptTail: Equatable, Sendable {
     public enum Turn: Equatable, Sendable {
         case inProgress
-        /// The turn closed. Background agents that had not reported back yet may still reopen it.
-        case ended(pendingBackgroundAgents: Int)
+        /// The turn closed. Background agents that had not reported back yet may still reopen it;
+        /// nil when the transcript does not say how many there were.
+        case ended(pendingBackgroundAgents: Int?)
     }
 
     public var turn: Turn

@@ -112,11 +112,11 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         core.reconcile(observation("done", .alive, turnEnded, at: now - 90, cwd: "/work/web"), observedAt: now)
 
         let sessions = core.snapshot(at: now).sessions
-        #expect(sessions.map(\.id) == ["done", "busy"])
-        #expect(sessions.map(\.state) == [.finishedTurn, .working])
-        #expect(sessions.map(\.since) == [now - 90, now - 40])
-        #expect(sessions.map(\.project) == ["web", "api"])
-        #expect(sessions.map(\.title) == [nil, "Fix the login bug"])
+        #expect(sessions.map(\.id) == ["busy", "done"])
+        #expect(sessions.map(\.state) == [.working, .finishedTurn])
+        #expect(sessions.map(\.since) == [now - 40, now - 90])
+        #expect(sessions.map(\.project) == ["api", "web"])
+        #expect(sessions.map(\.title) == ["Fix the login bug", nil])
     }
 
     @Test func sessionsIdleForDaysAreNotRebuilt() {
@@ -124,6 +124,7 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         core.reconcile(observation("old", .alive, turnEnded, at: now - 2 * 86_400), observedAt: now)
 
         #expect(core.snapshot(at: now).sessions.isEmpty)
+        #expect(core.trackedSessions.isEmpty)
     }
 
     @Test func aSessionWithNoReadableTranscriptOrNoProcessIsNotRebuilt() {
@@ -247,6 +248,32 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         let session = try #require(core.snapshot(at: stopped + 21).sessions.first)
         #expect(session.state == .finishedTurn)
         #expect(session.subagents.isEmpty)
+    }
+
+    @Test func aTranscriptThatCannotTellWhatRunsInTheBackgroundDoesNotEndATurnWithRunningSubagents() throws {
+        var core = SessionCore()
+        let fixture = try Fixture("cli/cli-subagents")
+        let stopped = fixture.play(into: &core) { $0.event.name == "Stop" }
+        let id = fixture.steps[0].event.sessionID
+
+        core.reconcile(
+            observation(id, .alive, .ended(pendingBackgroundAgents: nil), at: stopped), observedAt: stopped + 1)
+
+        let session = try #require(core.snapshot(at: stopped + 1).sessions.first)
+        #expect(session.state == .working)
+        #expect(session.subagents.count == 2)
+    }
+
+    @Test func thatSameTranscriptEndsATurnThatHasNoSubagentsLeft() throws {
+        var core = SessionCore()
+        let fixture = try Fixture("cli/cli-permission-native-no")
+        let asked = fixture.play(into: &core) { $0.event.name == "PermissionRequest" }
+        let id = fixture.steps[0].event.sessionID
+
+        core.reconcile(
+            observation(id, .alive, .ended(pendingBackgroundAgents: nil), at: asked + 2), observedAt: asked + 5)
+
+        #expect(core.snapshot(at: asked + 5).sessions.map(\.state) == [.finishedTurn])
     }
 
     @Test func aRebuiltSessionWithUnfinishedBackgroundWorkIsUnknown() {

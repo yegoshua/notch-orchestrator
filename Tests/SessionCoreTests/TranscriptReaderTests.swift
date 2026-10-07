@@ -53,9 +53,11 @@ private let ended = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
             == TranscriptTail(turn: ended, at: Entry.time("2026-10-07T13:13:47.197Z")))
     }
 
-    @Test func aFinalAnswerEndsTheTurnEvenBeforeItsDurationIsWritten() {
+    /// Sessions in the desktop app (2.1.289) write no turn duration at all.
+    @Test func aFinalAnswerEndsTheTurnWithoutSayingWhatStillRunsInTheBackground() {
         #expect(tail(Entry.prompt, Entry.endTurn, Entry.stopHooks)
-            == TranscriptTail(turn: ended, at: Entry.time("2026-10-07T13:13:47.167Z")))
+            == TranscriptTail(
+                turn: .ended(pendingBackgroundAgents: nil), at: Entry.time("2026-10-07T13:13:47.167Z")))
     }
 
     @Test func aTurnThatEndedWithBackgroundAgentsSaysHowMany() {
@@ -64,7 +66,7 @@ private let ended = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
     }
 
     @Test func anInterruptedTurnHasEnded() {
-        #expect(tail(Entry.prompt, Entry.toolUse, Entry.interrupted)?.turn == ended)
+        #expect(tail(Entry.prompt, Entry.toolUse, Entry.interrupted)?.turn == .ended(pendingBackgroundAgents: nil))
     }
 
     @Test func slashCommandsAndTheirOutputAreNotTurns() {

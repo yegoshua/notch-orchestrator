@@ -10,6 +10,16 @@ public enum SessionState: Equatable, Sendable {
     /// Whether a session in this state is blocked on the user. States that wait for a permission
     /// or an answer belong here.
     public var needsUser: Bool { self == .failed }
+
+    /// Position in the list: what needs the user, then what is busy, then what is done.
+    var rank: Int {
+        if needsUser { return 0 }
+        switch self {
+        case .working: return 1
+        case .finishedTurn, .failed: return 2
+        case .unknown: return 3
+        }
+    }
 }
 
 public struct Subagent: Equatable, Sendable {
@@ -32,7 +42,6 @@ public struct Session: Equatable, Sendable {
     public var activity: String?
     /// Running subagents, in the order they were launched.
     public var subagents: [Subagent]
-    public var transcriptPath: String?
 
     public var project: String? { cwd.map { ($0 as NSString).lastPathComponent } }
     public var needsUser: Bool { state.needsUser }
@@ -51,7 +60,8 @@ public struct Counters: Equatable, Sendable {
 }
 
 public struct Snapshot: Equatable, Sendable {
-    /// Live sessions only: those that need the user first, then oldest state change first.
+    /// Live sessions only: those that need the user, then working, then finished, then unknown;
+    /// within each, oldest state change first.
     public var sessions: [Session]
     public var counters: Counters
 }
@@ -221,6 +231,13 @@ public struct SessionCore {
         if let tail = observation.transcript {
             // Without a process behind it, a turn in progress is a guess.
             let confirmed = observation.process == .alive
+            // The turn is over for good: no background agent is left to reopen it. When the
+            // transcript does not count them, the subagents the hooks reported stand in.
+            let closed: Bool
+            switch tail.turn {
+            case .inProgress: closed = false
+            case .ended(let pending): closed = pending == 0 || (pending == nil && record.subagents.isEmpty)
+            }
             switch (tail.turn, record.state) {
             case (.inProgress, .working):
                 break
@@ -229,12 +246,12 @@ public struct SessionCore {
             case (.inProgress, _) where tail.at > record.since:
                 // A turn the hooks did not announce.
                 record.enter(confirmed ? .working : .unknown, at: tail.at)
-            case (.ended(pendingBackgroundAgents: 0), .working) where tail.at >= record.since,
-                 (.ended(pendingBackgroundAgents: 0), .unknown):
+            case (.ended, .working) where closed && tail.at >= record.since,
+                 (.ended, .unknown) where closed:
                 // A turn the hooks did not close.
                 record.enter(.finishedTurn, at: tail.at)
                 record.endTurn()
-            case (.ended(pendingBackgroundAgents: 0), nil) where known == nil:
+            case (.ended, nil) where known == nil && closed:
                 record.enter(.finishedTurn, at: tail.at)
             case (.ended, nil) where known == nil:
                 // Background agents may or may not still be running: nothing here confirms either.
@@ -245,6 +262,7 @@ public struct SessionCore {
         }
         // Only a session with something to show is worth remembering.
         if known != nil || record.state != nil { records[observation.sessionID] = record }
+        prune(at: time)
     }
 
     /// Sessions reconciliation should look at: every one the core tracks, shown or not.
@@ -261,9 +279,9 @@ public struct SessionCore {
                 return Session(
                     id: record.id, state: state, since: record.since, cwd: record.cwd,
                     title: record.observedTitle ?? record.firstPrompt, activity: record.activity,
-                    subagents: record.subagents, transcriptPath: record.transcriptPath)
+                    subagents: record.subagents)
             }
-            .sorted { ($0.needsUser ? 0 : 1, $0.since, $0.id) < ($1.needsUser ? 0 : 1, $1.since, $1.id) }
+            .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
         return Snapshot(
             sessions: live,
             counters: Counters(

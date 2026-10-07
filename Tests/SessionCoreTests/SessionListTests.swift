@@ -125,13 +125,13 @@ import SessionCore
         #expect(core.snapshot(at: t + 601).sessions.isEmpty)
     }
 
-    @Test func sessionsThatNeedTheUserComeFirst() {
+    @Test func sessionsThatNeedTheUserComeFirstThenWorkingThenFinished() {
         var core = SessionCore()
         let t = Date(timeIntervalSince1970: 1_000)
-        for id in ["a", "b", "c", "d"] {
-            core.handle(HookEvent(name: "UserPromptSubmit", sessionID: id), at: t)
+        core.handle(HookEvent(name: "Stop", sessionID: "b"), at: t)
+        for id in ["a", "c", "d"] {
+            core.handle(HookEvent(name: "UserPromptSubmit", sessionID: id), at: t + 1)
         }
-        core.handle(HookEvent(name: "Stop", sessionID: "b"), at: t + 1)
         core.handle(HookEvent(name: "StopFailure", sessionID: "d"), at: t + 2)
 
         let sessions = core.snapshot(at: t + 3).sessions

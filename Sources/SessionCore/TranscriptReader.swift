@@ -16,6 +16,7 @@ public enum TranscriptReader {
             case "system":
                 switch entry["subtype"] as? String {
                 case "turn_duration":
+                    // Written by the CLI only; it leaves the count out when nothing is pending.
                     let pending = entry["pendingBackgroundAgentCount"] as? Int ?? 0
                     return TranscriptTail(turn: .ended(pendingBackgroundAgents: pending), at: at)
                 case "compact_boundary":
@@ -27,7 +28,7 @@ public enum TranscriptReader {
             case "assistant":
                 let stopped = message["stop_reason"] as? String
                 let turn: TranscriptTail.Turn =
-                    stopped == nil || stopped == "tool_use" ? .inProgress : .ended(pendingBackgroundAgents: 0)
+                    stopped == nil || stopped == "tool_use" ? .inProgress : .ended(pendingBackgroundAgents: nil)
                 return TranscriptTail(turn: turn, at: at)
             case "user":
                 if entry["isMeta"] as? Bool == true || entry["isCompactSummary"] as? Bool == true { continue }
@@ -38,7 +39,7 @@ public enum TranscriptReader {
                     let interrupted = blocks.contains {
                         ($0["text"] as? String)?.hasPrefix("[Request interrupted by user") == true
                     }
-                    if interrupted { return TranscriptTail(turn: .ended(pendingBackgroundAgents: 0), at: at) }
+                    if interrupted { return TranscriptTail(turn: .ended(pendingBackgroundAgents: nil), at: at) }
                     continue
                 }
                 // Only a submitted prompt starts a turn; slash commands and their output do not.
