@@ -159,7 +159,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Does what the core decided since the last time. Several sounds at once are one sound.
-    /// A turn that finished well and has no sound of its own gets the quiet chime of its line.
+    /// A turn that finished well and has no sound of its own gets the quiet call of its line.
     private func interrupt() {
         var sounds = false
         var chimes = false
@@ -177,7 +177,7 @@ final class AppModel: ObservableObject {
         if sounds {
             InterruptionSound.play()
         } else if chimes {
-            FinishChime.play()
+            FinishSound.play()
         }
     }
 

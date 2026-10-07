@@ -111,6 +111,17 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             entry.state = InterruptionSound.current == name ? .on : .off
         }
         menu.addItem(sound)
+
+        let finish = NSMenuItem(title: "Finish Sound", action: nil, keyEquivalent: "")
+        finish.submenu = NSMenu()
+        add("None", #selector(setFinishSound(_:)), to: finish.submenu!).state = FinishSound.current == nil ? .on : .off
+        finish.submenu!.addItem(.separator())
+        for voice in FinishSound.Voice.allCases {
+            let entry = add(voice.rawValue, #selector(setFinishSound(_:)), to: finish.submenu!)
+            entry.representedObject = voice.rawValue
+            entry.state = FinishSound.current == voice ? .on : .off
+        }
+        menu.addItem(finish)
     }
 
     private func addScreens(to menu: NSMenu) {
@@ -158,6 +169,12 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         InterruptionSound.current = sender.representedObject as? String
         // So the choice can be made by ear.
         InterruptionSound.play()
+    }
+
+    @objc private func setFinishSound(_ sender: NSMenuItem) {
+        FinishSound.current = (sender.representedObject as? String).flatMap(FinishSound.Voice.init)
+        // So the choice can be made by ear.
+        FinishSound.play(after: 0)
     }
 
     @objc private func setScreen(_ sender: NSMenuItem) {
