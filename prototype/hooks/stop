@@ -1,0 +1,15 @@
+#!/bin/sh
+# Stop the prototype hook receiver (the "receiver not running" test starts here).
+cd "$(dirname "$0")" || exit 1
+if [ -f .receiver.pid ]; then
+  kill "$(cat .receiver.pid)" 2>/dev/null && echo "receiver stopped" || echo "stale pid file"
+  rm -f .receiver.pid
+else
+  echo "no pid file"
+fi
+if lsof -nP -iTCP:47821 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "WARNING: something still listens on 127.0.0.1:47821:"
+  lsof -nP -iTCP:47821 -sTCP:LISTEN
+else
+  echo "port 47821 is free"
+fi

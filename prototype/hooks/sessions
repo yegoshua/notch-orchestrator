@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Cut recorded hook traffic by session.
+
+  ./sessions                      list recorded sessions (oldest first)
+  ./sessions <id-prefix|last>     compact event sequence of one session
+  ./sessions <id-prefix|last> --raw            print the raw JSONL records
+  ./sessions <id-prefix|last> --save <name>    copy the raw JSONL to logs/recorded/<name>.jsonl
+  ./sessions <id-prefix|last> --pid            pid of the claude process (from the last SessionStart record)
+  ./sessions <id-prefix|last> --env            environment + process chain reported by SessionStart
+
+Every receiver run also has its own full log: logs/run-<timestamp>.jsonl
+(logs/latest.jsonl points at the newest one).
+"""
+import glob
+import json
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SESSION_DIR = os.path.join(HERE, "logs", "by-session")
+RECORDED_DIR = os.path.join(HERE, "logs", "recorded")
+
+
+def load(path):
+    with open(path) as f:
+        return [json.loads(l) for l in f if l.strip()]
+
+
+def describe(rec):
+    p = rec.get("payload", {})
+    bits = []
+    for key in ("source", "reason", "trigger", "notification_type", "tool_name", "agent_type", "agent_id",
+                "permission_mode", "error"):
+        if key in p:
+            bits.append(f"{key}={str(p[key])[:40]}")
+    return " ".join(bits)
+
+
+def main():
+    args = sys.argv[1:]
+    files = sorted(glob.glob(os.path.join(SESSION_DIR, "*.jsonl")), key=os.path.getmtime)
+    if not args:
+        for f in files:
+            recs = load(f)
+            reqs = [r for r in recs if r.get("kind") == "request"]
+            if not reqs:
+                continue
+            first = reqs[0]
+            print(f"{os.path.basename(f)[:-6]}  {first['ts']}  {len(reqs):>3} events  "
+                  f"cwd={first.get('payload', {}).get('cwd', '?')}")
+        return
+    if args[0] in ("-h", "--help"):
+        print(__doc__)
+        return
+    if args[0] == "last":
+        match = files[-1:]
+    else:
+        match = [f for f in files if os.path.basename(f).startswith(args[0])]
+    if len(match) != 1:
+        sys.exit(f"{len(match)} sessions match {args[0]!r}")
+    path = match[0]
+    if "--raw" in args:
+        sys.stdout.write(open(path).read())
+        return
+    if "--save" in args:
+        name = args[args.index("--save") + 1]
+        os.makedirs(RECORDED_DIR, exist_ok=True)
+        dest = os.path.join(RECORDED_DIR, name + ".jsonl")
+        shutil.copyfile(path, dest)
+        print(f"saved {dest}")
+        return
+    if "--pid" in args or "--env" in args:
+        starts = [r for r in load(path) if r.get("kind") == "request" and r.get("event") == "SessionStart"]
+        if not starts:
+            sys.exit("no SessionStart record for this session")
+        chain = starts[-1].get("process_chain", [])
+        if "--pid" in args:
+            # chain[0] is the forwarder shell; its parent is the claude process
+            print(chain[0].split()[1] if chain else "")
+        else:
+            print("\n".join(starts[-1].get("env", [])))
+            print("--- process chain (pid ppid tty command)")
+            print("\n".join(chain))
+        return
+    print(os.path.basename(path)[:-6])
+    for r in load(path):
+        if r.get("kind") == "request":
+            print(f"  {r['ts'][11:23]}  #{r['seq']:<4} {r['event']:<20} {describe(r)}")
+        elif r.get("kind") == "response" and (r.get("held") or r.get("body") is not None or r.get("status") != 200):
+            print(f"  {r['ts'][11:23]}        -> {r.get('status')} {r.get('resolved_by')} "
+                  f"after {r.get('elapsed_ms')} ms  {json.dumps(r.get('body')) if r.get('body') else ''}")
+        elif r.get("kind") == "note":
+            print(f"  {r['ts'][11:23]}        NOTE {r.get('note')}")
+
+
+if __name__ == "__main__":
+    main()

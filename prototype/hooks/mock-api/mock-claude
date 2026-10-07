@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run the REAL `claude` CLI against the scripted mock API (see mock_anthropic.py).
+# Clean environment + a private config dir, so the user's ~/.claude is neither
+# read nor written; project settings of the current directory still apply.
+#   cd sandbox && ../prototype/hooks/mock-api/mock-claude -p "MOCK:bash:./hello.sh"
+CFG="${MOCK_CLAUDE_CONFIG_DIR:-${TMPDIR:-/tmp}/notch-proto-mock-claude-config}"
+mkdir -p "$CFG"
+exec env -i HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$LOGNAME" TERM="${TERM:-xterm-256color}" \
+  SHELL=/bin/zsh LANG=en_US.UTF-8 \
+  CLAUDE_CONFIG_DIR="$CFG" \
+  ANTHROPIC_BASE_URL=http://127.0.0.1:47822 ANTHROPIC_API_KEY=mock-not-a-real-key \
+  DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 DISABLE_AUTOUPDATER=1 \
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+  "${MOCK_CLAUDE_BIN:-claude}" "$@"

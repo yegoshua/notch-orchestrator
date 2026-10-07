@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Answer requests held by the prototype hook receiver.
+
+  ./answer                      list pending requests (same as: ./answer list)
+  ./answer allow                allow the oldest pending request
+  ./answer deny                 deny it
+  ./answer deny "reason text"   deny with a reason that is returned to the agent
+  ./answer deny "reason" --interrupt   deny and ask Claude Code to stop the turn
+  ./answer none                 return 200 with an empty body (= no decision)
+  ./answer http500              return HTTP 500 (non-2xx) for the held request
+  ./answer pick 2               AskUserQuestion: choose option 2 (index or label)
+  ./answer pick 1 "Blue"        several questions: one pick per question, in order
+  ./answer pick 1,3             multi-select: comma-separated picks
+  ./answer raw '{"...": 1}'     return an arbitrary JSON body
+  ./answer <cmd> --id N         answer pending request #N instead of the oldest
+
+  ./answer status               receiver modes, pid, log file
+  ./answer mode perm hold|none|allow|deny|http500
+                                what the receiver does with PermissionRequest
+                                (none = "returns no decision immediately")
+  ./answer mode ask hold|none   whether PreToolUse(AskUserQuestion) is held
+  ./answer mode hold-timeout N  answer held requests with no decision after N s (0 = never)
+  ./answer note "text"          write a marker line into the log
+"""
+import json
+import sys
+import urllib.error
+import urllib.request
+
+BASE = "http://127.0.0.1:47821"
+
+
+def call(path, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(BASE + path, data=data, method="GET" if body is None else "POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+    except (urllib.error.URLError, OSError) as e:
+        sys.exit(f"receiver not reachable on {BASE}: {e}  (start it with ./start)")
+
+
+def main():
+    args = sys.argv[1:]
+    pid = None
+    interrupt = False
+    if "--id" in args:
+        i = args.index("--id")
+        pid = int(args[i + 1])
+        del args[i:i + 2]
+    if "--interrupt" in args:
+        interrupt = True
+        args.remove("--interrupt")
+    cmd = args[0] if args else "list"
+
+    if cmd in ("-h", "--help", "help"):
+        print(__doc__)
+        return
+    if cmd == "list":
+        _, out = call("/control/pending")
+        if not out["pending"]:
+            print("nothing pending")
+        for p in out["pending"]:
+            print(f"#{p['id']}  {p['event']}  session {str(p['session_id'])[:8]}  since {p['received']}\n"
+                  f"     {p['summary']}")
+        return
+    if cmd == "status":
+        print(json.dumps(call("/control/status")[1], indent=2))
+        return
+    if cmd == "mode":
+        if len(args) != 3 or args[1] not in ("perm", "ask", "hold-timeout"):
+            sys.exit("usage: ./answer mode perm|ask|hold-timeout <value>")
+        key = "hold_timeout" if args[1] == "hold-timeout" else args[1]
+        status, out = call("/control/mode", {key: args[2]})
+        print(json.dumps(out))
+        sys.exit(0 if status == 200 else 1)
+    if cmd == "note":
+        call("/control/note", {"note": " ".join(args[1:])})
+        return
+
+    body = {"action": cmd}
+    if pid is not None:
+        body["id"] = pid
+    if cmd == "deny":
+        if len(args) > 1:
+            body["reason"] = " ".join(args[1:])
+        body["interrupt"] = interrupt
+    elif cmd == "pick":
+        if len(args) < 2:
+            sys.exit("usage: ./answer pick <option index or label> [more picks for further questions]")
+        body["picks"] = args[1:]
+    elif cmd == "raw":
+        body["body"] = json.loads(args[1])
+    elif cmd not in ("allow", "none", "http500"):
+        sys.exit(f"unknown command {cmd!r}; see ./answer --help")
+    status, out = call("/control/answer", body)
+    print(json.dumps(out, indent=2))
+    sys.exit(0 if status == 200 else 1)
+
+
+if __name__ == "__main__":
+    main()

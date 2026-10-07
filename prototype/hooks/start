@@ -1,0 +1,7 @@
+#!/bin/sh
+# Start the prototype hook receiver in the foreground (Ctrl-C to stop).
+# Any arguments are passed to receiver.py, e.g.:
+#   ./start --perm-mode none        # PermissionRequest answered with "no decision" at once
+#   ./start --hold-timeout 20       # held requests return "no decision" after 20 s
+cd "$(dirname "$0")" || exit 1
+exec python3 receiver.py "$@"
