@@ -4,6 +4,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = AppModel(config: AppConfig())
+    private let presence = IslandPresence()
     private var panel: NotchPanelController?
     private var expandedPanel: ExpandedPanelController?
     private var requestCard: RequestCardController?
@@ -19,9 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.start()
-        panel = NotchPanelController(model: model)
-        expandedPanel = ExpandedPanelController(model: model)
-        requestCard = RequestCardController(model: model)
+        panel = NotchPanelController(model: model, presence: presence)
+        expandedPanel = ExpandedPanelController(model: model, presence: presence)
+        requestCard = RequestCardController(model: model, presence: presence)
         menu = StatusMenuController(model: model)
     }
 }

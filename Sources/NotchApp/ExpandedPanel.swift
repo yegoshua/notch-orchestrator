@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SessionCore
 import SwiftUI
 
 /// The session list that drops out of the notch. Hovering the notch or pressing the global hotkey
@@ -12,6 +13,12 @@ final class ExpandedPanelController {
 
     private let panel: NSPanel
     private let model: AppModel
+    private let presence: IslandPresence
+    private let stage = IslandStage()
+    private let sizer = IslandWindowSizer()
+    /// Open or opening. While the list returns into the notch its window is still there.
+    private var isExpanded = false
+    private var closing: DispatchWorkItem?
     private var monitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
     private var snapshotChanges: AnyCancellable?
@@ -26,19 +33,20 @@ final class ExpandedPanelController {
     /// Our own panel swallows the movement events over it, so while it is open the pointer is polled.
     private var pointerPoll: Timer?
 
-    private var isExpanded: Bool { panel.isVisible }
-
-    init(model: AppModel) {
+    init(model: AppModel, presence: IslandPresence) {
         self.model = model
+        self.presence = presence
         panel = NSPanel(
             contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The island draws its own shadow, which follows it as it grows.
+        panel.hasShadow = false
         panel.isMovable = false
         panel.hidesOnDeactivate = false
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         let moved: (NSEvent) -> Void = { [weak self] _ in
             Task { @MainActor in self?.pointerMoved() }
@@ -58,12 +66,12 @@ final class ExpandedPanelController {
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.collapse() }
+            Task { @MainActor in self?.collapse(animated: false) }
         })
+        stage.onOpenSizeChange = { [weak self] in self?.fitWindow() }
         snapshotChanges = model.$snapshot.receive(on: DispatchQueue.main).sink { [weak self] snapshot in
-            guard let self, self.isExpanded else { return }
-            // A request card takes the place under the notch.
-            if snapshot.requests.isEmpty { self.layout() } else { self.collapse() }
+            // A request card takes the place under the notch, at once.
+            if !snapshot.requests.isEmpty { self?.collapse(animated: false) }
         }
         registerHotkey()
     }
@@ -82,11 +90,35 @@ final class ExpandedPanelController {
 
     private func expand(byPointer: Bool) {
         cancelPending()
-        guard !isExpanded, model.snapshot.requests.isEmpty, let screen = Self.screen else { return }
+        // A request card has the place under the notch, also while it is still leaving.
+        guard !isExpanded, model.snapshot.requests.isEmpty, !presence.cardIsOpen, let screen = NSScreen.island
+        else { return }
+        isExpanded = true
         pointerHasEntered = byPointer
-        panel.contentView = NSHostingView(rootView: SessionListView(model: model, topInset: Self.topInset(on: screen)))
-        layout()
-        panel.orderFrontRegardless()
+        presence.listIsOpen = true
+        if let closing {
+            // Caught on its way back into the notch: it grows again from where it is.
+            closing.cancel()
+            self.closing = nil
+            stage.isOpen = true
+        } else {
+            let geometry = NotchGeometry(screen: screen)
+            let list = IslandSurface(
+                model: model, stage: stage, geometry: geometry, width: Island.listWidth, maxHeight: Island.maxHeight
+            ) {
+                SessionListView(model: model, bandHeight: geometry.frame.height) { [weak self] session in
+                    self?.jump(to: session)
+                }
+            }
+            panel.contentView = FirstClickHostingView(rootView: AnyView(list))
+            sizer.fit(panel, to: CGSize(width: Island.listWidth, height: Island.maxHeight), geometry: geometry, on: screen.frame)
+            panel.orderFrontRegardless()
+            // Once the collapsed shape is on screen, so that there is something to grow from.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isExpanded else { return }
+                self.stage.isOpen = true
+            }
+        }
         // Taking Escape away from the frontmost app is only fair when a key opened the list.
         // Opened by hovering, it closes when the pointer leaves.
         if !byPointer {
@@ -99,21 +131,53 @@ final class ExpandedPanelController {
         }
     }
 
-    private func collapse() {
+    /// Animated, the list returns into the notch before its window goes.
+    private func collapse(animated: Bool = true) {
         cancelPending()
         pointerPoll?.invalidate()
         pointerPoll = nil
         pointerMustLeaveNotch = true
         escape = nil
+        if isExpanded {
+            isExpanded = false
+            stage.isOpen = false
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated { self?.removeWindow() }
+            }
+            closing = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + Island.closeDuration, execute: work)
+        }
+        if !animated, closing != nil { removeWindow() }
+    }
+
+    /// The window follows the list, so that nothing invisible is left lying over other windows.
+    private func fitWindow() {
+        guard panel.contentView != nil, let screen = NSScreen.island else { return }
+        sizer.fit(panel, to: stage.openSize, geometry: NotchGeometry(screen: screen), on: screen.frame)
+    }
+
+    private func removeWindow() {
+        closing?.cancel()
+        closing = nil
         panel.orderOut(nil)
         panel.contentView = nil
+        presence.listIsOpen = false
+    }
+
+    private func jump(to session: Session) {
+        guard session.location.jumpTarget != nil else { return }
+        SessionJump.jump(to: session.location, cwd: session.cwd)
+        collapse()
     }
 
     private func pointerMoved() {
-        guard let screen = Self.screen else { return }
+        guard let screen = NSScreen.island else { return }
         let pointer = NSEvent.mouseLocation
+        let geometry = NotchGeometry(screen: screen)
         if isExpanded {
-            let inside = panel.frame.insetBy(dx: -6, dy: -6).contains(pointer)
+            // The window is larger than the list; only the list itself counts.
+            let inside = geometry.openFrame(ofSize: stage.openSize, on: screen.frame).union(geometry.frame)
+                .insetBy(dx: -6, dy: -6).contains(pointer)
             if inside {
                 pointerHasEntered = true
                 cancelPending()
@@ -122,7 +186,7 @@ final class ExpandedPanelController {
             }
         } else {
             // The pointer has to rest on the notch for a moment; passing over it does nothing.
-            let onNotch = NotchGeometry(screen: screen).frame.contains(pointer)
+            let onNotch = geometry.frame.contains(pointer)
             if !onNotch {
                 pointerMustLeaveNotch = false
                 cancelPending()
@@ -148,28 +212,5 @@ final class ExpandedPanelController {
         }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
-    // MARK: Placement
-
-    /// Same choice as the collapsed overlay: the notch when there is one, otherwise the first screen.
-    private static var screen: NSScreen? {
-        NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first
-    }
-
-    private static func topInset(on screen: NSScreen) -> CGFloat {
-        NotchGeometry(screen: screen).frame.height
-    }
-
-    /// Hangs from the top edge, centred on the notch, as tall as its rows up to most of the screen.
-    private func layout() {
-        guard let screen = Self.screen else { return }
-        let notch = NotchGeometry(screen: screen).frame
-        let width = min(SessionListView.Metrics.width, screen.frame.width - 40)
-        let wanted = SessionListView.Metrics.height(of: model.snapshot.sessions, topInset: notch.height)
-        let height = min(wanted, screen.frame.height * 0.6)
-        panel.setFrame(
-            CGRect(x: notch.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height),
-            display: true)
     }
 }

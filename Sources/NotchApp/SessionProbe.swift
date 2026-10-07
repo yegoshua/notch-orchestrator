@@ -20,8 +20,8 @@ extension AppConfig {
 }
 
 /// Reads what Claude Code keeps on disk: a record per running process in `sessions/<pid>.json`
-/// and a transcript per session under `projects/`. Neither format is documented, so everything
-/// here degrades to "unknown" rather than fail.
+/// and a transcript per session under `projects/`, and the desktop app's session records. None of
+/// these formats is documented, so everything here degrades to "unknown" rather than fail.
 ///
 /// Not safe for concurrent use: one `observe` at a time.
 final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
@@ -30,9 +30,13 @@ final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
     /// The process each session was last seen alive in. The record of a killed session does not
     /// stay around forever, and then this is all that says the session ever had a process.
     private var lastSeenAlive: [String: ProcessRecord] = [:]
+    private let desktopRecords: DesktopSessionRecords
+    /// The program each live process was found to run in. It does not change while the process lives.
+    private var hosts: [pid_t: SessionLocation] = [:]
 
-    init(directory: URL) {
+    init(directory: URL, desktopSessionsDirectory: URL) {
         self.directory = directory
+        desktopRecords = DesktopSessionRecords(directory: desktopSessionsDirectory)
     }
 
     func observe(tracked: [(id: String, transcriptPath: String?)], discover: Bool) -> [Observation] {
@@ -41,23 +45,42 @@ final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
             if let live = found.first(where: \.isAlive) { lastSeenAlive[id] = live }
         }
         let known = Set(tracked.map(\.id))
+        // Read anew every time: the identifier a desktop session runs under changes over its life.
+        let desktop = desktopRecords.read()
         var observations = tracked.map { session in
-            observation(session.id, among: records, transcriptPath: session.transcriptPath)
+            observation(session.id, among: records, desktop: desktop, transcriptPath: session.transcriptPath)
         }
         if discover {
             for (id, found) in records where !known.contains(id) && found.contains(where: \.isAlive) {
-                observations.append(observation(id, among: records, transcriptPath: nil))
+                observations.append(observation(id, among: records, desktop: desktop, transcriptPath: nil))
             }
         }
         lastSeenAlive = lastSeenAlive.filter { known.contains($0.key) || records[$0.key] != nil }
+        let livePIDs = Set(records.values.joined().map(\.pid))
+        hosts = hosts.filter { livePIDs.contains($0.key) }
         return observations
     }
 
     private func observation(
-        _ id: String, among records: [String: [ProcessRecord]], transcriptPath: String?
+        _ id: String, among records: [String: [ProcessRecord]], desktop: [DesktopSessionRecord],
+        transcriptPath: String?
     ) -> Observation {
         let process = process(of: id, among: records)
-        let record = records[id]?.first(where: \.isAlive) ?? records[id]?.first ?? lastSeenAlive[id]
+        let live = records[id]?.first(where: \.isAlive)
+        let record = live ?? records[id]?.first ?? lastSeenAlive[id]
+        let owner = DesktopSessionRecord.owning(id, hostSessionID: record?.hostSessionID, among: desktop)
+        // A record that only used to run this session, or was imported from it, says less than
+        // the program the session's own process is found in: it may have gone back to a terminal.
+        let ownsNow = record?.hostSessionID != nil || owner?.cliSessionID == id
+        var location = SessionLocation.unknown
+        if !ownsNow, let pid = live?.pid {
+            location = hosts[pid] ?? ProcessHost.location(of: pid)
+            // Not finding the program is no answer to keep.
+            if location != .unknown { hosts[pid] = location }
+        }
+        if location == .unknown, let desktopID = record?.hostSessionID ?? owner?.sessionID {
+            location = .desktopApp(sessionID: desktopID)
+        }
         let transcript = transcriptPath.map { URL(fileURLWithPath: $0) }
             ?? locateTranscript(id, cwd: record?.cwd)
         let text = process == .dead ? nil : transcript.flatMap(Self.end(of:))
@@ -65,8 +88,9 @@ final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
             sessionID: id, process: process,
             transcript: text.flatMap(TranscriptReader.tail(of:)),
             cwd: record?.cwd,
-            title: record?.userGivenName ?? text.flatMap(TranscriptReader.title(in:)),
-            transcriptPath: transcript?.path)
+            // The desktop sidebar's title first, so that the session can be found there.
+            title: (location.origin == .desktop ? owner?.title : nil) ?? record?.userGivenName ?? text.flatMap(TranscriptReader.title(in:)),
+            transcriptPath: transcript?.path, location: location)
     }
 
     private func process(of id: String, among records: [String: [ProcessRecord]]) -> Observation.Process {
@@ -89,6 +113,8 @@ final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
         var sessionID: String
         var cwd: String?
         var userGivenName: String?
+        /// The desktop app's identifier for the session, when the desktop app started the process.
+        var hostSessionID: String?
         /// When Claude Code wrote the record, shortly after the process started.
         var startedAt: Date?
 
@@ -114,6 +140,7 @@ final class ClaudeSessionProbe: SessionProbe, @unchecked Sendable {
             records[id, default: []].append(ProcessRecord(
                 pid: pid_t(pid), sessionID: id, cwd: object["cwd"] as? String,
                 userGivenName: object["nameSource"] as? String == "user" ? object["name"] as? String : nil,
+                hostSessionID: (object["hostSessionId"] as? String).flatMap { $0.hasPrefix("local_") ? $0 : nil },
                 startedAt: (object["startedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }))
         }
         return records

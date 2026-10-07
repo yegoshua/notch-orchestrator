@@ -20,93 +20,147 @@ final class RequestCardController {
 
     private let panel: NSPanel
     private let model: AppModel
+    private let presence: IslandPresence
+    private let stage = IslandStage()
+    private let sizer = IslandWindowSizer()
     private let draft = RequestCardDraft()
+    /// Set while the card returns into the notch; its window goes when that is done.
+    private var closing: DispatchWorkItem?
     private var queueChanges: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
     private var shown: PendingRequest?
     private var shownSince = Date.distantPast
-    private var contentHeight: CGFloat = 0
     private var allowHotkey: GlobalHotkey?
     private var denyHotkey: GlobalHotkey?
 
-    init(model: AppModel) {
+    init(model: AppModel, presence: IslandPresence) {
         self.model = model
+        self.presence = presence
         panel = CardPanel(
             contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The island draws its own shadow, which follows it as it grows.
+        panel.hasShadow = false
         panel.isMovable = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.appearance = NSAppearance(named: .darkAqua)
 
+        stage.onOpenSizeChange = { [weak self] in self?.layout() }
         queueChanges = model.$snapshot.map(\.requests).removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] requests in self?.show(requests) }
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.layout() }
+            // The island is drawn for one screen's notch: on another it is laid out anew.
+            Task { @MainActor in
+                guard let self else { return }
+                self.show(self.model.snapshot.requests)
+            }
         }
     }
 
     private func show(_ requests: [PendingRequest]) {
-        guard let head = requests.first, let screen = Self.screen else {
+        guard let head = requests.first, let screen = NSScreen.island else {
             hide()
             return
         }
-        if head.id != shown?.id {
+        // A card caught on its way out gave up its shortcuts already.
+        let wasClosing = closing != nil
+        closing?.cancel()
+        closing = nil
+        if head.id != shown?.id || wasClosing {
             shownSince = Date()
-            contentHeight = 0
-            draft.explanation = ""
+            draft.reset()
             registerHotkeys(for: head)
         }
         shown = head
         let id = head.id
-        let view = RequestCardView(
-            request: head, moreCount: requests.count - 1, topInset: NotchGeometry(screen: screen).frame.height,
+        let card = RequestCardView(
+            request: head, next: requests.dropFirst().first, moreCount: requests.count - 1,
             allowShortcut: allowHotkey == nil ? nil : Shortcut.allow.title,
             denyShortcut: denyHotkey == nil ? nil : Shortcut.deny.title,
             draft: draft,
             decide: { [weak self] decision in self?.decide(decision, on: id) },
-            onHeight: { [weak self] height in
-                guard let self, self.shown?.id == id, height > 0, height != self.contentHeight else { return }
-                self.contentHeight = height
-                self.layout()
-            })
-        // A new identity per request, so nothing chosen for one card carries over to the next,
-        // while the same card keeps what was chosen when the queue behind it changes.
-        let content = AnyView(view.id(id))
+            openInSession: { [weak self] in self?.openInSession(id) })
+        let geometry = NotchGeometry(screen: screen)
+        let content = AnyView(IslandSurface(
+            model: model, stage: stage, geometry: geometry, width: Island.cardWidth, maxHeight: Island.cardMaxHeight
+        ) {
+            ZStack(alignment: .top) {
+                // A new identity per request, so nothing chosen for one card carries over to the
+                // next, while the same card keeps what was chosen when the queue behind it changes.
+                // The answered card leaves upward and the next one rises into its place.
+                card.id(id).transition(.asymmetric(
+                    insertion: .offset(y: 18).combined(with: .opacity),
+                    removal: .offset(y: -12).combined(with: .opacity)))
+            }
+            .animation(Island.content, value: id)
+        })
         if let hosting = panel.contentView as? FirstClickHostingView {
             hosting.rootView = content
         } else {
             let hosting = FirstClickHostingView(rootView: content)
-            // The panel is sized from the height the card reports; left to itself the hosting view
-            // imposes a minimum of its own, measured without a width, that is far too tall.
+            // The window has the size it is given; left to itself the hosting view would resize it.
             hosting.sizingOptions = []
             panel.contentView = hosting
         }
         layout()
+        presence.cardIsOpen = true
         // Shown, never activated: the app in front keeps the keyboard.
         panel.orderFrontRegardless()
+        if !stage.isOpen {
+            // Once the collapsed shape is on screen, so that there is something to grow from.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.closing == nil, self.shown != nil else { return }
+                self.stage.isOpen = true
+            }
+        }
     }
 
+    /// The card returns into the notch before its window goes.
     private func hide() {
-        shown = nil
-        contentHeight = 0
+        guard shown != nil, closing == nil else { return }
         allowHotkey = nil
         denyHotkey = nil
-        draft.explanation = ""
-        panel.orderOut(nil)
-        panel.contentView = nil
+        stage.isOpen = false
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.closing = nil
+                self.shown = nil
+                self.draft.reset()
+                self.panel.orderOut(nil)
+                self.panel.contentView = nil
+                self.presence.cardIsOpen = false
+            }
+        }
+        closing = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Island.closeDuration, execute: work)
     }
 
     private func decide(_ decision: Decision, on requestID: String) {
-        guard shown?.id == requestID, Date().timeIntervalSince(shownSince) >= Self.settleDelay else { return }
+        guard isAnswerable(requestID) else { return }
+        // A long command is allowed only once all of it has been shown, by key as much as by click.
+        if decision == .allow, let shown, !RequestCardView.isArmed(shown, draft: draft) { return }
         model.decide(decision, on: requestID)
+    }
+
+    /// The card of this request is up, has been for long enough to be read, and is not leaving.
+    private func isAnswerable(_ requestID: String) -> Bool {
+        shown?.id == requestID && closing == nil && Date().timeIntervalSince(shownSince) >= Self.settleDelay
+    }
+
+    /// Takes the user to the asking session, where its own dialog is waiting, and stops asking here.
+    private func openInSession(_ requestID: String) {
+        guard let shown, isAnswerable(requestID) else { return }
+        SessionJump.jump(
+            to: shown.location, cwd: model.snapshot.sessions.first { $0.id == shown.sessionID }?.cwd)
+        model.decide(.handBack, on: requestID)
     }
 
     /// Only a permission request can be allowed or denied by a key; a question needs a choice.
@@ -121,7 +175,8 @@ final class RequestCardController {
         }
         denyHotkey = GlobalHotkey(keyCode: Shortcut.deny.keyCode, modifiers: Shortcut.modifiers) { [weak self] in
             guard let self else { return }
-            self.decide(.deny(explanation: self.draft.explanation), on: id)
+            // What was typed counts only while the field for it is open.
+            self.decide(.deny(explanation: self.draft.isExplaining ? self.draft.explanation : nil), on: id)
         }
     }
 
@@ -133,20 +188,12 @@ final class RequestCardController {
 
     // MARK: Placement
 
-    /// Same choice as the collapsed overlay: the notch when there is one, otherwise the first screen.
-    private static var screen: NSScreen? {
-        NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first
-    }
-
-    /// Hangs from the top edge, centred on the notch, as tall as the card needs.
+    /// Hangs from the top edge, centred on the notch, and follows the card as it grows, so that
+    /// nothing invisible is left lying over other windows.
     private func layout() {
-        guard shown != nil, let screen = Self.screen else { return }
-        let notch = NotchGeometry(screen: screen).frame
-        let width = min(RequestCardView.width, screen.frame.width - 40)
-        let height = min(max(contentHeight, notch.height + 60), screen.frame.height * 0.8)
-        panel.setFrame(
-            CGRect(x: notch.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height),
-            display: true)
+        guard shown != nil, let screen = NSScreen.island else { return }
+        let size = stage.openSize == .zero ? CGSize(width: Island.cardWidth, height: Island.cardMaxHeight) : stage.openSize
+        sizer.fit(panel, to: size, geometry: NotchGeometry(screen: screen), on: screen.frame)
     }
 }
 
@@ -155,9 +202,4 @@ final class RequestCardController {
 private final class CardPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
-}
-
-/// Buttons in a window that is not key answer the first click instead of swallowing it.
-private final class FirstClickHostingView: NSHostingView<AnyView> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

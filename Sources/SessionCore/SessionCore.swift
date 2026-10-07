@@ -48,7 +48,10 @@ public struct Session: Equatable, Sendable {
     public var activity: String?
     /// Running subagents, in the order they were launched.
     public var subagents: [Subagent]
+    /// Where the session runs, as far as reconciliation found out.
+    public var location: SessionLocation = .unknown
 
+    public var origin: SessionOrigin { location.origin }
     public var project: String? { cwd.map { ($0 as NSString).lastPathComponent } }
     public var needsUser: Bool { state.needsUser }
 }
@@ -123,6 +126,7 @@ public struct SessionCore {
         var transcriptPath: String?
         var firstPrompt: String?
         var observedTitle: String?
+        var location = SessionLocation.unknown
         var activity: String?
         var subagents: [Subagent] = []
         /// Tasks of `Agent` calls whose subagent has not reported its start yet, oldest first.
@@ -462,6 +466,8 @@ public struct SessionCore {
         record.cwd = record.cwd ?? observation.cwd
         record.transcriptPath = record.transcriptPath ?? observation.transcriptPath
         record.observedTitle = observation.title ?? record.observedTitle
+        // A look that found nothing says nothing about where the session runs.
+        if observation.location != .unknown { record.location = observation.location }
 
         if let tail = observation.transcript {
             // Without a process behind it, a turn in progress is a guess.
@@ -538,8 +544,9 @@ public struct SessionCore {
                     id: request.id, sessionID: record.id, sessionTitle: title(record),
                     project: record.cwd.map { ($0 as NSString).lastPathComponent },
                     toolName: request.toolName, detail: RequestPresentation.detail(of: request.input),
+                    summary: RequestPresentation.summary(of: request.input),
                     excerpt: RequestPresentation.excerpt(of: request.input), questions: request.questions,
-                    arrivedAt: request.arrivedAt)
+                    arrivedAt: request.arrivedAt, location: record.location)
                 queue.append((request.order, shown))
             }
         }
@@ -550,7 +557,7 @@ public struct SessionCore {
                 return Session(
                     id: record.id, state: state, since: record.since, cwd: record.cwd,
                     title: title(record), activity: record.activity,
-                    subagents: record.subagents)
+                    subagents: record.subagents, location: record.location)
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
         return Snapshot(

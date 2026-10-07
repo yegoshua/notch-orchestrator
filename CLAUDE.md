@@ -37,4 +37,8 @@ On launch the app writes its hook entries into `~/.claude/settings.json`. When r
 
 The reconciler reads `~/.claude` (session records and transcripts, read-only), so a development build lists the real sessions on the machine. `-claudeDataDirectory /path` points it elsewhere.
 
+It also reads the Claude desktop app's session records (read-only) to tell desktop sessions from CLI ones and to take their sidebar titles. `-claudeDesktopSessionsDirectory /path` points it elsewhere.
+
+Colours, sizes, radii and springs of the island live in `Sources/NotchApp/IslandKit.swift`; they follow the "Notch Island v2" design.
+
 A permission request the user ignores goes back to Claude Code's own dialog after five minutes. `-requestTimeoutSeconds 20` shortens that for a check by hand.

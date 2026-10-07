@@ -27,11 +27,15 @@ public struct PendingRequest: Equatable, Sendable, Identifiable {
     /// What is being asked, in full: the command, the path, or the whole input when a tool has no
     /// single subject.
     public var detail: String
+    /// What the call is for, in the agent's words, when it said so.
+    public var summary: String?
     /// For edits: the first lines of the change, removed lines marked `-` and added ones `+`.
     public var excerpt: String?
     /// Not empty when this is an agent's question rather than a permission request.
     public var questions: [Question]
     public var arrivedAt: Date
+    /// Where the asking session runs.
+    public var location: SessionLocation = .unknown
 }
 
 /// What the user did with a request.
@@ -95,6 +99,13 @@ enum RequestPresentation {
             if let value = input[key]?.string, !value.isEmpty { return value }
         }
         return input.serialized
+    }
+
+    /// Only where the description is a note beside the subject, not the subject itself.
+    static func summary(of input: JSONValue?) -> String? {
+        guard let input, input["command"] != nil, let text = input["description"]?.string else { return nil }
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return line.isEmpty ? nil : line
     }
 
     static func excerpt(of input: JSONValue?) -> String? {

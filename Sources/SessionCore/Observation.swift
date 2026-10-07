@@ -36,10 +36,13 @@ public struct Observation: Equatable, Sendable {
     public var cwd: String?
     public var title: String?
     public var transcriptPath: String?
+    /// Where the session runs; `unknown` when this look could not tell.
+    public var location: SessionLocation
 
     public init(
         sessionID: String, process: Process, transcript: TranscriptTail? = nil,
-        cwd: String? = nil, title: String? = nil, transcriptPath: String? = nil
+        cwd: String? = nil, title: String? = nil, transcriptPath: String? = nil,
+        location: SessionLocation = .unknown
     ) {
         self.sessionID = sessionID
         self.process = process
@@ -47,5 +50,6 @@ public struct Observation: Equatable, Sendable {
         self.cwd = cwd
         self.title = title
         self.transcriptPath = transcriptPath
+        self.location = location
     }
 }

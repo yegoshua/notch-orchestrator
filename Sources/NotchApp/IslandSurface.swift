@@ -1,0 +1,141 @@
+import SessionCore
+import SwiftUI
+
+/// Which open islands are on screen. While one is, it draws the band itself and the collapsed
+/// island steps aside.
+@MainActor
+final class IslandPresence: ObservableObject {
+    @Published var listIsOpen = false
+    @Published var cardIsOpen = false
+
+    var isOpen: Bool { listIsOpen || cardIsOpen }
+}
+
+/// Keeps the window of an open island just larger than the island: room for its shadow and the
+/// overshoot of the spring, and no more, since a window takes the clicks meant for what is under
+/// it. It grows at once and shrinks only after the island has had time to settle.
+@MainActor
+final class IslandWindowSizer {
+    private static let margin: CGFloat = 48
+    private var shrinking: DispatchWorkItem?
+
+    func fit(_ panel: NSPanel, to islandSize: CGSize, geometry: NotchGeometry, on screenFrame: CGRect) {
+        let size = CGSize(
+            width: islandSize.width + 2 * Island.shoulder + 2 * Self.margin,
+            height: islandSize.height + Island.pillDrop + Self.margin)
+        let frame = geometry.windowFrame(ofSize: size, on: screenFrame)
+        shrinking?.cancel()
+        shrinking = nil
+        guard frame.height < panel.frame.height || frame.width < panel.frame.width else {
+            panel.setFrame(frame, display: true)
+            return
+        }
+        let work = DispatchWorkItem { [weak panel] in
+            MainActor.assumeIsolated { panel?.setFrame(frame, display: true) }
+        }
+        shrinking = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Island.closeDuration, execute: work)
+    }
+}
+
+/// The link between an open island and the window controller that shows it.
+@MainActor
+final class IslandStage: ObservableObject {
+    /// Flipped by the controller; the island grows out of the notch or returns into it.
+    @Published var isOpen = false
+    /// The island's size once it has grown, for telling whether the pointer is over it.
+    private(set) var openSize = CGSize.zero
+    var onOpenSizeChange: (() -> Void)?
+
+    fileprivate func report(_ size: CGSize) {
+        guard size != openSize else { return }
+        openSize = size
+        // Reported from inside a view update, where a window must not be resized.
+        DispatchQueue.main.async { [weak self] in self?.onOpenSizeChange?() }
+    }
+}
+
+/// An island that opens below the notch: the band on top, `content` under it. It starts as the
+/// collapsed shape and stretches to its content, so that opening reads as the notch growing and
+/// not as a popover appearing. It is drawn hanging from the top centre of a window that is
+/// somewhat larger than it.
+struct IslandSurface<Content: View>: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var stage: IslandStage
+    let geometry: NotchGeometry
+    /// The width of the content, and of the island once open.
+    let width: CGFloat
+    let maxHeight: CGFloat
+    @ViewBuilder var content: Content
+
+    @State private var contentHeight: CGFloat = 0
+    @State private var isTall = false
+    @State private var isWide = false
+    @State private var isRevealed = false
+
+    private var bandHeight: CGFloat { geometry.frame.height }
+    private var outline: CGFloat { geometry.hasNotch ? 2 * Island.shoulder : 0 }
+    private var openHeight: CGFloat { min(bandHeight + contentHeight, maxHeight) }
+    private var islandWidth: CGFloat { (isWide ? width : geometry.frame.width) + outline }
+    private var islandHeight: CGFloat { isTall ? openHeight : bandHeight }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            IslandBody(radius: isTall ? Island.openRadius : geometry.collapsedRadius, hasShoulders: geometry.hasNotch)
+                .shadow(color: .black.opacity(isTall ? 0.4 : 0), radius: 12, y: 14)
+            VStack(spacing: 0) {
+                BandRow(
+                    counters: model.snapshot.counters, limit: model.limits.fiveHour,
+                    showsRing: model.connectionStatus != .notConnected)
+                    .padding(.horizontal, outline / 2 + (isWide ? Island.openPadding : Island.wingPadding))
+                    .frame(height: bandHeight)
+                content
+                    .frame(width: width)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: ContentHeight.self, value: proxy.size.height)
+                    })
+                    .opacity(isRevealed ? 1 : 0)
+                    .offset(y: isRevealed ? 0 : -10)
+                    .scaleEffect(isRevealed ? 1 : 0.96, anchor: .top)
+                    .blur(radius: isRevealed ? 0 : 5)
+                    .frame(height: max(0, islandHeight - bandHeight), alignment: .top)
+            }
+            .frame(width: islandWidth, height: islandHeight, alignment: .top)
+            .clipShape(IslandShape(
+                radius: isTall ? Island.openRadius : geometry.collapsedRadius, hasShoulders: geometry.hasNotch))
+        }
+        .frame(width: islandWidth, height: islandHeight)
+        .padding(.top, geometry.hasNotch ? 0 : Island.pillDrop)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Content and edge move together when a card grows or the next one takes its place.
+        .animation(Island.content, value: contentHeight)
+        .onPreferenceChange(ContentHeight.self) { contentHeight = $0 }
+        .onChange(of: stage.isOpen, initial: true) { _, isOpen in isOpen ? grow() : shrink() }
+        .onChange(of: CGSize(width: width + outline, height: openHeight), initial: true) { _, size in
+            stage.report(size)
+        }
+    }
+
+    /// Height first, so the notch appears to pull downward; width follows; then the content.
+    private func grow() {
+        withAnimation(Island.stretch) { isTall = true }
+        withAnimation(Island.stretch.delay(Island.widthLag)) { isWide = true }
+        withAnimation(Island.content.delay(Island.contentDelay)) { isRevealed = true }
+    }
+
+    /// Content leaves first, the shape follows without overshoot.
+    private func shrink() {
+        guard isTall || isWide || isRevealed else { return }
+        withAnimation(Island.quick) { isRevealed = false }
+        withAnimation(Island.settle.delay(Island.shapeLag)) {
+            isTall = false
+            isWide = false
+        }
+    }
+}
+
+private struct ContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}

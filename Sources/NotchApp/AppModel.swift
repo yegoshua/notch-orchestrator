@@ -205,7 +205,8 @@ final class AppModel: ObservableObject {
 
     // MARK: Reconciliation
 
-    private lazy var probe: SessionProbe = ClaudeSessionProbe(directory: config.claudeDataDirectory)
+    private lazy var probe: SessionProbe = ClaudeSessionProbe(
+        directory: config.claudeDataDirectory, desktopSessionsDirectory: config.claudeDesktopSessionsDirectory)
     private var reconcileTimer: Timer?
     private var isReconciling = false
 
