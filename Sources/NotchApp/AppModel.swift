@@ -136,7 +136,7 @@ final class AppModel: ObservableObject {
         return error.localizedDescription
     }
 
-    // MARK: Reconciliation (#6)
+    // MARK: Reconciliation
 
     private lazy var probe: SessionProbe = ClaudeSessionProbe(directory: config.claudeDataDirectory)
     private var reconcileTimer: Timer?

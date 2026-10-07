@@ -34,3 +34,5 @@ On launch the app writes its hook entries into `~/.claude/settings.json`. When r
   -claudeSettingsPath /path/to/test-project/.claude/settings.json \
   -supportDirectory /tmp/notch-support -port 47811
 ```
+
+The reconciler reads `~/.claude` (session records and transcripts, read-only), so a development build lists the real sessions on the machine. `-claudeDataDirectory /path` points it elsewhere.

@@ -79,6 +79,9 @@ public struct Settings: Equatable, Sendable {
 public struct SessionCore {
     public var settings: Settings
     private var records: [String: Record] = [:]
+    /// When sessions that reported their end did so. An observation made before that moment
+    /// describes a session that is no longer there.
+    private var endedAt: [String: Date] = [:]
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -117,6 +120,7 @@ public struct SessionCore {
         prune(at: time)
         if event.name == "SessionEnd" {
             records[event.sessionID] = nil
+            endedAt[event.sessionID] = time
             return
         }
 
@@ -133,8 +137,10 @@ public struct SessionCore {
                 record.activity = nil
             } else if record.state == .working {
                 // A fresh start of a session we believed to be mid-turn: that turn died with its
-                // process and never reported its end.
+                // process and never reported its end. Whatever the transcript says about it is
+                // older than this moment and no longer counts.
                 record.state = nil
+                record.since = time
                 record.endTurn()
             }
         case "UserPromptSubmit":
@@ -170,6 +176,8 @@ public struct SessionCore {
                 }
             } else {
                 record.activity = nil
+                // Every subagent of the batch has started by now: what is left was never launched.
+                if event.name == "PostToolBatch" { record.pendingAgentTasks = [] }
             }
         case "SubagentStart":
             // An empty type is Claude Code's internal helper agent, not something the user launched.
@@ -194,7 +202,8 @@ public struct SessionCore {
             } else {
                 record.activity = nil
                 record.pendingAgentTasks = []
-                record.subagents = running.map { task in
+                // One without an identifier keeps the turn open but cannot be followed or listed.
+                record.subagents = running.filter { !$0.id.isEmpty }.map { task in
                     var subagent = record.subagents.first { $0.id == task.id }
                         ?? Subagent(id: task.id, type: task.agentType ?? "")
                     subagent.task = task.description ?? subagent.task
@@ -218,6 +227,7 @@ public struct SessionCore {
     public mutating func reconcile(_ observation: Observation, observedAt time: Date) {
         let known = records[observation.sessionID]
         if let known, known.lastEventAt > time { return }
+        if known == nil, let ended = endedAt[observation.sessionID], ended >= time { return }
         if observation.process == .dead {
             records[observation.sessionID] = nil
             return
@@ -305,6 +315,7 @@ public struct SessionCore {
             if let state = record.state { return isLive(state, since: record.since, at: time) }
             return time.timeIntervalSince(record.lastEventAt) < settings.livenessThreshold
         }
+        endedAt = endedAt.filter { time.timeIntervalSince($0.value) < settings.livenessThreshold }
     }
 
     private static let compacting = "Compacting"

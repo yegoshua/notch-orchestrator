@@ -65,7 +65,7 @@ struct HotkeySetting: Equatable {
         none,
     ]
 
-    var isNone: Bool { modifiers == 0 }
+    var isNone: Bool { modifiers == 0 && keyCode == 0 }
 
     /// The stored choice, the first preset by default. Any combination can be stored by hand:
     /// `defaults write <bundle id> hotkeyKeyCode -int …` and `hotkeyModifiers -int …`.

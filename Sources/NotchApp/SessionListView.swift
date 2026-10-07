@@ -65,15 +65,20 @@ private struct LimitsFooter: View {
             // The clock ticks here so that "updated … ago" and an expired window do not wait for a payload.
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
                 VStack(alignment: .leading, spacing: 0) {
-                    line("5-hour limit", limits.fiveHour, now: timeline.date)
-                    line("Weekly limit", limits.sevenDay, now: timeline.date)
+                    if limits.fiveHour == .noData && limits.sevenDay == .noData {
+                        line("Usage limits: no data yet")
+                        line(LimitText.noDataExplanation)
+                    } else {
+                        line(LimitText.line("5-hour limit", limits.fiveHour, now: timeline.date))
+                        line(LimitText.line("Weekly limit", limits.sevenDay, now: timeline.date))
+                    }
                 }
             }
         }
     }
 
-    private func line(_ name: String, _ window: LimitWindow, now: Date) -> some View {
-        Text(LimitText.line(name, window, now: now))
+    private func line(_ text: String) -> some View {
+        Text(text)
             .font(.system(size: 11))
             .foregroundStyle(Color(white: 0.6))
             .lineLimit(1)

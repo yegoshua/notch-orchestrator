@@ -297,3 +297,74 @@ private let turnEnded = TranscriptTail.Turn.ended(pendingBackgroundAgents: 0)
         #expect(core.snapshot(at: at + 1).sessions.first?.title == "Run the slow script")
     }
 }
+
+/// Observations and events that arrive in an awkward order.
+@Suite struct AwkwardTiming {
+    private let start = Date(timeIntervalSince1970: 1_791_380_000)
+
+    @Test func aResumedKilledSessionIsNotRevivedByItsOldTranscript() throws {
+        var core = SessionCore()
+        let fixture = try Fixture("cli/cli-resumed-after-kill")
+        let resumed = fixture.play(into: &core) { $0.source == "resume" }
+        let id = fixture.steps[0].event.sessionID
+        let interrupted = try #require(fixture.steps.last { $0.event.name == "PreToolUse" && $0.at < resumed })
+
+        // The transcript still ends with the tool call the killed process never finished.
+        core.reconcile(observation(id, .alive, .inProgress, at: interrupted.at), observedAt: resumed + 5)
+
+        #expect(core.snapshot(at: resumed + 5).sessions.isEmpty)
+    }
+
+    @Test func anObservationMadeBeforeTheSessionEndedDoesNotBringItBack() {
+        var core = SessionCore()
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: start)
+        core.handle(HookEvent(name: "Stop", sessionID: "s"), at: start + 8)
+        core.handle(HookEvent(name: "SessionEnd", sessionID: "s"), at: start + 10)
+
+        core.reconcile(observation("s", .alive, turnEnded, at: start + 8), observedAt: start + 9)
+
+        #expect(core.snapshot(at: start + 11).sessions.isEmpty)
+    }
+
+    @Test func aSessionResumedAfterItEndedIsObservedAgain() {
+        var core = SessionCore()
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: start)
+        core.handle(HookEvent(name: "SessionEnd", sessionID: "s"), at: start + 10)
+
+        core.reconcile(observation("s", .alive, .inProgress, at: start + 30), observedAt: start + 31)
+
+        #expect(core.snapshot(at: start + 31).counters == Counters(working: 1))
+    }
+
+    @Test func aDeniedAgentCallDoesNotLendItsTaskToTheNextSubagent() throws {
+        var core = SessionCore()
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: start)
+        core.handle(
+            HookEvent(name: "PreToolUse", sessionID: "s", tool: .init(name: "Agent", subject: "Denied task")),
+            at: start + 1)
+        core.handle(HookEvent(name: "PostToolBatch", sessionID: "s"), at: start + 2)
+        core.handle(
+            HookEvent(name: "PreToolUse", sessionID: "s", tool: .init(name: "Agent", subject: "Real task")),
+            at: start + 3)
+        core.handle(
+            HookEvent(name: "SubagentStart", sessionID: "s", agentID: "a1", agentType: "general-purpose"),
+            at: start + 4)
+
+        let session = try #require(core.snapshot(at: start + 4).sessions.first)
+        #expect(session.subagents.map(\.task) == ["Real task"])
+    }
+
+    @Test func aBackgroundSubagentWithoutAnIdentifierKeepsTheTurnOpenButIsNotListed() throws {
+        var core = SessionCore()
+        core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: start)
+        core.handle(
+            HookEvent(name: "Stop", sessionID: "s", backgroundTasks: [
+                .init(type: "subagent", status: "running"), .init(type: "subagent", status: "running"),
+            ]),
+            at: start + 5)
+
+        let session = try #require(core.snapshot(at: start + 5).sessions.first)
+        #expect(session.state == .working)
+        #expect(session.subagents.isEmpty)
+    }
+}
