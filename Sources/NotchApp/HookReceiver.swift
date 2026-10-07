@@ -9,13 +9,13 @@ final class HookReceiver {
     private let onPayload: @MainActor (Data) -> Void
     private let queue = DispatchQueue(label: "hook-receiver")
 
-    init(connection: HookConnection, onPayload: @escaping @MainActor (Data) -> Void) throws {
+    init(port: Int, token: String, onPayload: @escaping @MainActor (Data) -> Void) throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(
-            host: .ipv4(.loopback), port: NWEndpoint.Port(integerLiteral: UInt16(connection.port)))
+            host: .ipv4(.loopback), port: NWEndpoint.Port(integerLiteral: UInt16(port)))
         listener = try NWListener(using: parameters)
-        token = connection.token
+        self.token = token
         self.onPayload = onPayload
     }
 
@@ -26,15 +26,12 @@ final class HookReceiver {
             self.read(connection, buffer: Data())
         }
         listener.stateUpdateHandler = { state in
-            if case .failed(let error) = state {
-                Task { @MainActor in onFailure(error) }
+            switch state {
+            case .failed(let error), .waiting(let error): Task { @MainActor in onFailure(error) }
+            default: break
             }
         }
         listener.start(queue: queue)
-    }
-
-    func stop() {
-        listener.cancel()
     }
 
     private func read(_ connection: NWConnection, buffer: Data) {

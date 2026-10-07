@@ -5,6 +5,8 @@ import SessionCore
 struct Fixture {
     struct Step {
         let event: HookEvent
+        /// `SessionStart` only: startup, resume, clear or compact.
+        let source: String?
         let at: Date
     }
 
@@ -26,7 +28,7 @@ struct Fixture {
             else { continue }
             let data = try JSONSerialization.data(withJSONObject: payload)
             if let event = HookEvent(payload: data) {
-                steps.append(Step(event: event, at: at))
+                steps.append(Step(event: event, source: payload["source"] as? String, at: at))
             }
         }
         self.steps = steps

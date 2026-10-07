@@ -99,7 +99,7 @@ import SessionCore
         var core = SessionCore()
         let t = Date(timeIntervalSince1970: 1_000)
         core.handle(HookEvent(name: "UserPromptSubmit", sessionID: "s"), at: t)
-        core.handle(HookEvent(name: "SessionStart", sessionID: "s", source: "compact"), at: t + 5)
+        core.handle(HookEvent(name: "SessionStart", sessionID: "s"), at: t + 5)
 
         #expect(core.snapshot(at: t + 5).counters == Counters(working: 1, finished: 0))
     }
@@ -108,11 +108,11 @@ import SessionCore
         var core = SessionCore()
         let fixture = try Fixture("cli/cli-resumed")
 
-        let resumed = fixture.play(into: &core) { $0.event.source == "resume" }
+        let resumed = fixture.play(into: &core) { $0.source == "resume" }
         #expect(core.snapshot(at: resumed).counters == Counters())
 
         var core2 = SessionCore()
-        fixture.play(into: &core2) { $0.event.source == "resume" }
+        fixture.play(into: &core2) { $0.source == "resume" }
         let prompted = fixture.steps.last { $0.event.name == "UserPromptSubmit" }!
         core2.handle(prompted.event, at: prompted.at)
         #expect(core2.snapshot(at: prompted.at).counters == Counters(working: 1, finished: 0))
@@ -120,7 +120,7 @@ import SessionCore
 
     @Test func clearingReplacesTheSessionWithoutLeavingTheOldOneBehind() throws {
         var core = SessionCore()
-        let at = try Fixture("cli/cli-clear").play(into: &core) { $0.event.source == "clear" }
+        let at = try Fixture("cli/cli-clear").play(into: &core) { $0.source == "clear" }
         #expect(core.snapshot(at: at).counters == Counters())
 
         var core2 = SessionCore()

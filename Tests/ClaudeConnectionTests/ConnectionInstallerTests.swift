@@ -2,7 +2,10 @@ import Foundation
 import Testing
 import ClaudeConnection
 
-private let connection = HookConnection(port: 47800, token: "abc123")
+private func makeConnection(port: Int = 47800, headerFile: String = "/Users/me/Library/Application Support/notch/hook-header") -> HookConnection {
+    HookConnection(port: port, tokenHeaderFile: URL(fileURLWithPath: headerFile))
+}
+private let connection = makeConnection()
 
 /// Settings the way a real user has them: other options, their own hooks, a status line.
 private let existingSettings = """
@@ -64,7 +67,7 @@ private func commands(in settings: Data, event: String) throws -> [String] {
             let commands = try commands(in: installed, event: event)
             #expect(commands.count == 1)
             #expect(commands[0].contains("http://127.0.0.1:47800/hook/\(event)"))
-            #expect(commands[0].contains("X-Notch-Token: abc123"))
+            #expect(commands[0].contains("-H @'/Users/me/Library/Application Support/notch/hook-header'"))
         }
     }
 
@@ -73,8 +76,12 @@ private func commands(in settings: Data, event: String) throws -> [String] {
         let command = try #require(try commands(in: installed, event: "Stop").first)
 
         // Short timeout, no output, and a zero exit status even when nothing is listening.
-        #expect(command.contains("curl -s -m 2 -o /dev/null"))
+        #expect(command.contains("-s -m 2 "))
+        #expect(command.contains("-o /dev/null"))
         #expect(command.contains("|| true"))
+        // Neither the user's curl configuration nor a proxy can send the payload elsewhere.
+        #expect(command.hasPrefix("/usr/bin/curl -q "))
+        #expect(command.contains("--noproxy '*'"))
     }
 
     @Test func existingHooksAndOptionsAreKept() throws {
@@ -101,7 +108,7 @@ private func commands(in settings: Data, event: String) throws -> [String] {
     }
 
     @Test func installingAgainReplacesAStaleEntry() throws {
-        let old = try ClaudeSettings.installing(HookConnection(port: 1111, token: "old"), into: Data(existingSettings.utf8))
+        let old = try ClaudeSettings.installing(makeConnection(port: 1111), into: Data(existingSettings.utf8))
         let repaired = try ClaudeSettings.installing(connection, into: old)
 
         #expect(repaired == (try ClaudeSettings.installing(connection, into: Data(existingSettings.utf8))))
@@ -114,6 +121,26 @@ private func commands(in settings: Data, event: String) throws -> [String] {
                 try ClaudeSettings.installing(connection, into: Data(broken.utf8))
             }
         }
+    }
+}
+
+@Suite struct KeepingTheUsersFormatting {
+    @Test(arguments: ["\t", "    "])
+    func theFilesOwnIndentationIsKept(indent: String) throws {
+        let original = "{\n\(indent)\"model\": \"opus\",\n\(indent)\"env\": {\n\(indent)\(indent)\"A\": \"1\"\n\(indent)}\n}\n"
+        let installed = try ClaudeSettings.installing(connection, into: Data(original.utf8))
+
+        #expect(String(decoding: installed, as: UTF8.self).hasPrefix("{\n\(indent)\"model\": \"opus\",\n"))
+        #expect(String(decoding: try ClaudeSettings.removing(from: installed), as: UTF8.self) == original)
+    }
+
+    @Test func reformattingByAnotherToolDoesNotLookLikeABrokenConnection() throws {
+        let installed = try ClaudeSettings.installing(connection, into: Data(existingSettings.utf8))
+        let object = try JSONSerialization.jsonObject(with: installed)
+        let reformatted = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+
+        #expect(ClaudeSettings.isInstalled(connection, in: reformatted))
+        #expect(!ClaudeSettings.isInstalled(makeConnection(port: 1), in: reformatted))
     }
 }
 
@@ -168,10 +195,10 @@ private func commands(in settings: Data, event: String) throws -> [String] {
         try Data(existingSettings.utf8).write(to: installer.settings)
 
         try installer.install(connection)
-        try installer.install(HookConnection(port: 2222, token: "other"))
+        try installer.install(makeConnection(port: 2222))
 
         #expect(try String(contentsOf: installer.backup, encoding: .utf8) == existingSettings)
-        #expect(installer.isInstalled(HookConnection(port: 2222, token: "other")))
+        #expect(installer.isInstalled(makeConnection(port: 2222)))
         #expect(!installer.isInstalled(connection))
     }
 
@@ -222,5 +249,22 @@ private func commands(in settings: Data, event: String) throws -> [String] {
         #expect(ClaudeSettings.isInstalled(connection, in: try Data(contentsOf: real)))
         let permissions = try FileManager.default.attributesOfItem(atPath: real.path)[.posixPermissions] as? Int
         #expect(permissions == 0o600)
+    }
+
+    @Test func aSettingsFileThatCannotBeReadIsNotReplaced() throws {
+        let directory = try temporaryDirectory()
+        let installer = ConnectionInstaller(
+            settings: directory.appendingPathComponent("settings.json"),
+            backup: directory.appendingPathComponent("backup.json")
+        )
+        try Data(existingSettings.utf8).write(to: installer.settings)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: installer.settings.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: installer.settings.path) }
+
+        #expect(throws: (any Error).self) { try installer.install(connection) }
+        #expect(throws: (any Error).self) { try installer.remove() }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: installer.settings.path)
+        #expect(try String(contentsOf: installer.settings, encoding: .utf8) == existingSettings)
     }
 }

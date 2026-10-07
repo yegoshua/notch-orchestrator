@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 /// The overlay at the notch. Display only: it never takes clicks or focus.

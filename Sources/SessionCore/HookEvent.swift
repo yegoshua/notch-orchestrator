@@ -14,17 +14,14 @@ public struct HookEvent: Equatable, Sendable {
 
     public var name: String
     public var sessionID: String
-    /// `SessionStart` only: startup, resume, clear or compact.
-    public var source: String?
     /// `Stop` only: work that outlives the turn.
     public var backgroundTasks: [BackgroundTask]
 
     public init(
-        name: String, sessionID: String, source: String? = nil, backgroundTasks: [BackgroundTask] = []
+        name: String, sessionID: String, backgroundTasks: [BackgroundTask] = []
     ) {
         self.name = name
         self.sessionID = sessionID
-        self.source = source
         self.backgroundTasks = backgroundTasks
     }
 
@@ -38,7 +35,7 @@ public struct HookEvent: Equatable, Sendable {
             BackgroundTask(type: $0["type"] as? String ?? "", status: $0["status"] as? String ?? "")
         }
         self.init(
-            name: name, sessionID: sessionID, source: object["source"] as? String, backgroundTasks: tasks
+            name: name, sessionID: sessionID, backgroundTasks: tasks
         )
     }
 }

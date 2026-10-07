@@ -1,13 +1,15 @@
 import Foundation
 
-/// Where the app's hook receiver listens and the secret that proves a request came from our hooks.
+/// How our hook entries reach the app's receiver.
 public struct HookConnection: Equatable, Sendable {
     public var port: Int
-    public var token: String
+    /// A file holding the `X-Notch-Token: …` header line. The secret itself never appears in the
+    /// settings or on a command line, where other processes could read it.
+    public var tokenHeaderFile: URL
 
-    public init(port: Int, token: String) {
+    public init(port: Int, tokenHeaderFile: URL) {
         self.port = port
-        self.token = token
+        self.tokenHeaderFile = tokenHeaderFile
     }
 }
 
@@ -29,8 +31,10 @@ public enum ClaudeSettings {
 
     /// A command hook rather than an HTTP hook: when the app is not running an HTTP hook prints a
     /// connection error into the session, while this exits quietly with status zero.
+    /// `-q` and `--noproxy` keep the user's curl configuration and proxy from redirecting the post.
     static func command(for event: String, _ connection: HookConnection) -> String {
-        "/usr/bin/curl -s -m 2 -o /dev/null -H '\(tokenHeader): \(connection.token)' "
+        let headerFile = connection.tokenHeaderFile.path.replacingOccurrences(of: "'", with: "'\\''")
+        return "/usr/bin/curl -q -s -m 2 --noproxy '*' -o /dev/null -H @'\(headerFile)' "
             + "-H 'Content-Type: application/json' --data-binary @- "
             + "http://127.0.0.1:\(connection.port)/hook/\(event) 2>/dev/null || true \(marker)"
     }
@@ -62,14 +66,18 @@ public enum ClaudeSettings {
         return document.data
     }
 
-    /// Whether `settings` already contain exactly what `installing` would produce.
+    /// Whether `settings` already hold what `installing` would produce, whatever their formatting.
     public static func isInstalled(_ connection: HookConnection, in settings: Data?) -> Bool {
-        guard let settings, let installed = try? installing(connection, into: settings) else { return false }
-        return installed == settings
+        guard let settings, let current = try? Document(settings),
+              let installed = try? Document(installing(connection, into: settings))
+        else { return false }
+        return installed.root.hasSameContent(as: current.root)
     }
 
     private struct Document {
         var root: OrderedJSON
+        /// Two spaces, as Claude Code writes, unless the file shows another habit.
+        var indentation = "  "
         var endsWithNewline: Bool
 
         init(_ data: Data?) throws {
@@ -84,10 +92,14 @@ public enum ClaudeSettings {
             }
             root = parsed
             endsWithNewline = text.hasSuffix("\n")
+            let firstIndented = text.split(separator: "\n").dropFirst().first { $0.first == " " || $0.first == "\t" }
+            if let firstIndented {
+                indentation = String(firstIndented.prefix { $0 == " " || $0 == "\t" })
+            }
         }
 
         var data: Data {
-            Data((root.serialized() + (endsWithNewline ? "\n" : "")).utf8)
+            Data((root.serialized(indentation: indentation) + (endsWithNewline ? "\n" : "")).utf8)
         }
 
         mutating func removeOurEntries() throws {

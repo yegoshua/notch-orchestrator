@@ -34,6 +34,20 @@ indirect enum OrderedJSON: Equatable {
         }
     }
 
+    /// Equality that ignores the order of object members.
+    func hasSameContent(as other: OrderedJSON) -> Bool {
+        switch (self, other) {
+        case (.object(let mine), .object(let theirs)):
+            mine.count == theirs.count && mine.allSatisfy { member in
+                other[member.key].map(member.value.hasSameContent) ?? false
+            }
+        case (.array(let mine), .array(let theirs)):
+            mine.count == theirs.count && zip(mine, theirs).allSatisfy { $0.hasSameContent(as: $1) }
+        default:
+            self == other
+        }
+    }
+
     // MARK: Parsing
 
     struct ParseError: Error {}
@@ -153,16 +167,16 @@ indirect enum OrderedJSON: Equatable {
 
     // MARK: Serialising
 
-    /// Two-space indentation, the format Claude Code itself writes.
-    func serialized() -> String {
+    /// One member or element per line, each level indented by `indentation`.
+    func serialized(indentation: String) -> String {
         var output = ""
-        write(to: &output, indent: 0)
+        write(to: &output, indentation: indentation, depth: 0)
         return output
     }
 
-    private func write(to output: inout String, indent: Int) {
-        let pad = String(repeating: "  ", count: indent + 1)
-        let closingPad = String(repeating: "  ", count: indent)
+    private func write(to output: inout String, indentation: String, depth: Int) {
+        let pad = String(repeating: indentation, count: depth + 1)
+        let closingPad = String(repeating: indentation, count: depth)
         switch self {
         case .object(let members) where members.isEmpty: output += "{}"
         case .array(let elements) where elements.isEmpty: output += "[]"
@@ -170,7 +184,7 @@ indirect enum OrderedJSON: Equatable {
             output += "{\n"
             for (index, member) in members.enumerated() {
                 output += pad + Self.quoted(member.key) + ": "
-                member.value.write(to: &output, indent: indent + 1)
+                member.value.write(to: &output, indentation: indentation, depth: depth + 1)
                 output += index == members.count - 1 ? "\n" : ",\n"
             }
             output += closingPad + "}"
@@ -178,7 +192,7 @@ indirect enum OrderedJSON: Equatable {
             output += "[\n"
             for (index, element) in elements.enumerated() {
                 output += pad
-                element.write(to: &output, indent: indent + 1)
+                element.write(to: &output, indentation: indentation, depth: depth + 1)
                 output += index == elements.count - 1 ? "\n" : ",\n"
             }
             output += closingPad + "]"

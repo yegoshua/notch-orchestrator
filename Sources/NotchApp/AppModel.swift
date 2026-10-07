@@ -29,8 +29,8 @@ final class AppModel: ObservableObject {
 
     func start() {
         do {
-            let connection = try config.connection()
-            let receiver = try HookReceiver(connection: connection) { [weak self] payload in
+            let connection = config.connection
+            let receiver = try HookReceiver(port: connection.port, token: try config.token()) { [weak self] payload in
                 self?.receive(payload)
             }
             receiver.start { [weak self] error in
@@ -53,7 +53,8 @@ final class AppModel: ObservableObject {
 
     func repairConnection() {
         perform {
-            try config.installer.install(try config.connection())
+            _ = try config.token()
+            try config.installer.install(config.connection)
             config.connectionRemovedByUser = false
         }
     }
@@ -99,8 +100,7 @@ final class AppModel: ObservableObject {
             connectionStatus = .failed(receiverFailure)
             return
         }
-        let installed = (try? config.connection()).map(config.installer.isInstalled) ?? false
-        connectionStatus = installed ? .connected : .notConnected
+        connectionStatus = config.installer.isInstalled(config.connection) ? .connected : .notConnected
     }
 
     private static func describe(_ error: Error) -> String {

@@ -21,7 +21,7 @@ struct AppConfig {
         claudeSettings = defaults.string(forKey: "claudeSettingsPath").map { URL(fileURLWithPath: $0) }
             ?? home.appendingPathComponent(".claude/settings.json")
         let port = defaults.integer(forKey: "port")
-        self.port = port > 0 ? port : Self.defaultPort
+        self.port = (1...65535).contains(port) ? port : Self.defaultPort
     }
 
     var installer: ConnectionInstaller {
@@ -31,11 +31,18 @@ struct AppConfig {
         )
     }
 
-    /// The secret shared with our hook entries. Created on first use, readable by the user only.
-    func connection() throws -> HookConnection {
-        let file = supportDirectory.appendingPathComponent("token")
-        if let token = try? String(contentsOf: file, encoding: .utf8), !token.isEmpty {
-            return HookConnection(port: port, token: token)
+    var connection: HookConnection {
+        HookConnection(port: port, tokenHeaderFile: supportDirectory.appendingPathComponent("hook-header"))
+    }
+
+    /// The secret our hook entries send. Created on first use and kept in a file only the user can
+    /// read, in the form curl takes as a header file.
+    func token() throws -> String {
+        let file = connection.tokenHeaderFile
+        let prefix = "\(ClaudeSettings.tokenHeader): "
+        if let line = try? String(contentsOf: file, encoding: .utf8), line.hasPrefix(prefix) {
+            let token = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !token.isEmpty { return token }
         }
         var bytes = [UInt8](repeating: 0, count: 24)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
@@ -43,9 +50,9 @@ struct AppConfig {
         }
         let token = bytes.map { String(format: "%02x", $0) }.joined()
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
-        try Data(token.utf8).write(to: file, options: .atomic)
+        try Data("\(prefix)\(token)\n".utf8).write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-        return HookConnection(port: port, token: token)
+        return token
     }
 
     /// Set once the user chose "Remove completely", so the next launch does not reconnect by itself.

@@ -12,7 +12,7 @@ public struct ConnectionInstaller: Sendable {
 
     /// Adds or refreshes our entries. The file as it was before our first change is kept at `backup`.
     public func install(_ connection: HookConnection) throws {
-        let original = try? Data(contentsOf: settings)
+        let original = try read()
         let installed = try ClaudeSettings.installing(connection, into: original)
         guard installed != original else { return }
 
@@ -27,14 +27,21 @@ public struct ConnectionInstaller: Sendable {
 
     /// Deletes every entry we added.
     public func remove() throws {
-        guard let original = try? Data(contentsOf: settings) else { return }
+        guard let original = try read() else { return }
         let removed = try ClaudeSettings.removing(from: original)
         guard removed != original else { return }
         try write(removed)
     }
 
     public func isInstalled(_ connection: HookConnection) -> Bool {
-        ClaudeSettings.isInstalled(connection, in: try? Data(contentsOf: settings))
+        ClaudeSettings.isInstalled(connection, in: try? read())
+    }
+
+    /// Nil only when there is no file. A file that exists but cannot be read is an error:
+    /// treating it as absent would overwrite it.
+    private func read() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: settings.path) else { return nil }
+        return try Data(contentsOf: settings)
     }
 
     /// Settings hold the token and may be a symlink into a dotfiles repository: keep both properties.
