@@ -1,8 +1,8 @@
 import SessionCore
 import SwiftUI
 
-/// The open island as a list: every live session, the ones that need the user first, and the
-/// usage limits underneath. A row says where a click on it leads before it is clicked.
+/// The open island as a list: every live session, the ones that need the user first, the merge
+/// requests that outlived their sessions, and the usage limits underneath. A row says where a click on it leads before it is clicked.
 struct SessionListView: View {
     @ObservedObject var model: AppModel
     /// The height of the band above the list, which counts against the height the island may take.
@@ -14,6 +14,7 @@ struct SessionListView: View {
     /// The order the sessions were in when the list opened. Rows do not move under the pointer;
     /// a changed order shows the next time the list opens.
     @State private var order: [String] = []
+    /// What is under the pointer: a session by its id, a merge request by the id of its row.
     @State private var hovered: String?
     /// Sessions whose subagents the user folded away.
     @State private var folded: Set<String> = []
@@ -22,7 +23,9 @@ struct SessionListView: View {
         static let groupHeight: CGFloat = 28
         static let regionPadding: CGFloat = 6
         static let emptyHeight: CGFloat = 96
-        static let usageHeight: CGFloat = 70
+        static let usageHeight: CGFloat = 36
+        static let mergeRequestHeight: CGFloat = 28
+        static let mergeRequests = "Merge requests"
         /// From this many sessions on, the list is grouped by state.
         static let groupingThreshold = 8
     }
@@ -31,12 +34,17 @@ struct SessionListView: View {
         case group(String, Int)
         case row(Session)
         case subagent(Subagent, sessionID: String, isLast: Bool)
+        /// The CI of what the session pushed, on a line of its own.
+        case pipeline(SessionCI, sessionID: String, isLast: Bool)
+        case mergeRequest(FollowedMergeRequest)
 
         var id: String {
             switch self {
             case .group(let label, _): "group:\(label)"
             case .row(let session): "row:\(session.id)"
             case .subagent(let subagent, let sessionID, _): "sub:\(sessionID):\(subagent.id)"
+            case .pipeline(_, let sessionID, _): "ci:\(sessionID)"
+            case .mergeRequest(let request): "mr:\(request.remote.host)/\(request.remote.path)!\(request.number)"
             }
         }
 
@@ -44,7 +52,8 @@ struct SessionListView: View {
             switch self {
             case .group: Metrics.groupHeight
             case .row: Island.rowHeight
-            case .subagent: Island.subagentHeight
+            case .subagent, .pipeline: Island.subagentHeight
+            case .mergeRequest: Metrics.mergeRequestHeight
             }
         }
     }
@@ -62,13 +71,20 @@ struct SessionListView: View {
         func rows(_ sessions: [Session]) -> [Item] {
             sessions.flatMap { session -> [Item] in
                 let subagents = folded.contains(session.id) ? [] : session.subagents
-                return [.row(session)] + subagents.enumerated().map {
+                var lines: [Item] = [.row(session)]
+                if model.ciView == .detailed, let ci = session.ci {
+                    lines.append(.pipeline(ci, sessionID: session.id, isLast: subagents.isEmpty))
+                }
+                return lines + subagents.enumerated().map {
                     .subagent($1, sessionID: session.id, isLast: $0 == subagents.count - 1)
                 }
             }
         }
         let sessions = sessions
-        guard sessions.count >= Metrics.groupingThreshold else { return rows(sessions) }
+        let followed = model.snapshot.mergeRequests
+        let mergeRequests: [Item] = followed.isEmpty
+            ? [] : [.group(Metrics.mergeRequests, followed.count)] + followed.map(Item.mergeRequest)
+        guard sessions.count >= Metrics.groupingThreshold else { return rows(sessions) + mergeRequests }
         let groups: [(String, (SessionState) -> Bool)] = [
             ("Needs you", { $0.isWaiting }), ("Failed", { $0 == .failed }), ("Working", { $0 == .working }),
             ("Finished", { $0 == .finishedTurn }), ("Unknown", { $0 == .unknown }),
@@ -76,7 +92,7 @@ struct SessionListView: View {
         return groups.flatMap { label, belongs -> [Item] in
             let members = sessions.filter { belongs($0.state) }
             return members.isEmpty ? [] : [.group(label, members.count)] + rows(members)
-        }
+        } + mergeRequests
     }
 
     var body: some View {
@@ -139,7 +155,7 @@ struct SessionListView: View {
             SessionRow(
                 session: session, request: model.snapshot.requests.first { $0.sessionID == session.id },
                 now: now, isHovered: hovered == session.id, isFolded: folded.contains(session.id),
-                openPipeline: openPipeline,
+                showsCI: model.ciView == .compact, openPipeline: openPipeline,
                 toggleSubagents: {
                     withAnimation(Island.content) { folded.formSymmetricDifference([session.id]) }
                 })
@@ -149,6 +165,18 @@ struct SessionListView: View {
                 .onTapGesture { jump(session) }
         case .subagent(let subagent, _, let isLast):
             SubagentRow(subagent: subagent, isLast: isLast)
+        case .pipeline(let ci, _, let isLast):
+            PipelineRow(ci: ci, isLast: isLast, isHovered: hovered == item.id, open: openPipeline)
+                .background(HoverArea { inside in
+                    if inside { hovered = item.id } else if hovered == item.id { hovered = nil }
+                })
+        case .mergeRequest(let request):
+            MergeRequestRow(
+                request: request, isHovered: hovered == item.id, open: openPipeline,
+                remove: { model.stopFollowing(request) })
+                .background(HoverArea { inside in
+                    if inside { hovered = item.id } else if hovered == item.id { hovered = nil }
+                })
         }
     }
 }
@@ -160,6 +188,8 @@ private struct SessionRow: View {
     let now: Date
     let isHovered: Bool
     let isFolded: Bool
+    /// Whether the CI of the session's push is told in this row, not on a line of its own.
+    let showsCI: Bool
     let openPipeline: (URL) -> Void
     let toggleSubagents: () -> Void
 
@@ -194,7 +224,11 @@ private struct SessionRow: View {
                             .accessibilityAddTraits(.isButton)
                             .accessibilityLabel(isFolded ? "Show subagents" : "Hide subagents")
                     }
-                    if let ci = session.ci { PipelineMark(ci: ci, open: openPipeline) }
+                    if showsCI, let ci = session.ci {
+                        if let request = ci.request { RequestMark(request: request, open: openPipeline) }
+                        PipelineMark(ci: ci, open: openPipeline)
+                        ApprovalsMark(approvals: ci.approvals, isReady: ci.isReadyToMerge)
+                    }
                 }
                 .frame(height: 16)
             }
@@ -298,53 +332,172 @@ private struct SessionRow: View {
     }
 }
 
-/// The CI of what the session pushed, in a few words. A click on it opens the pipeline, on the
-/// job that failed when there is one; the rest of the row keeps the jump to the session.
-private struct PipelineMark: View {
-    let ci: SessionCI
+/// The pull or merge request the session pushed to, by its number as its host writes it. A
+/// click on it opens the request.
+private struct RequestMark: View {
+    let request: RequestLink
     let open: (URL) -> Void
 
+    private var url: URL? {
+        guard let url = URL(string: request.url), url.scheme == "https" || url.scheme == "http" else { return nil }
+        return url
+    }
+
+    var body: some View {
+        let mark = Text("\(request.url.contains("/merge_requests/") ? "!" : "#")\(request.number)")
+            .font(Island.smallCode)
+            .foregroundStyle(Island.text2)
+            .layoutPriority(1)
+        if let url {
+            mark.contentShape(Rectangle())
+                .onTapGesture { open(url) }
+                .accessibilityAddTraits(.isLink)
+                .accessibilityHint("Opens the request in the browser")
+        } else {
+            mark
+        }
+    }
+}
+
+private extension SessionCI {
     /// The pipeline, else the request of the branch. What a host handed out is opened only when
     /// it is a web address.
-    private var url: URL? {
-        guard let url = (ci.url ?? ci.request?.url).flatMap(URL.init(string:)),
+    var link: URL? {
+        guard let url = (url ?? request?.url).flatMap(URL.init(string:)),
               url.scheme == "https" || url.scheme == "http"
         else { return nil }
         return url
     }
 
-    private var label: String {
-        switch ci.state {
+    var label: String {
+        switch state {
         case .pending: "CI pending"
-        case .running(let stage): stage.map { "CI: \($0)" } ?? "CI running"
+        case .running(let stage): stage.map { "CI running: \($0)" } ?? "CI running"
         case .passed: "CI passed"
         case .failed: "CI failed"
+        case .held: "CI waits to be started"
         case .unknown: "CI unknown"
         case .noAccess(let host): "CI: no access to \(host)"
         }
     }
 
-    private var color: Color {
-        switch ci.state {
+    var color: Color {
+        switch state {
         case .running: Island.working
         case .passed: Island.finished
         case .failed: Island.failedText
+        case .held: Island.text2
         case .pending, .unknown, .noAccess: Island.text3
         }
     }
 
-    /// The note about a host is long and gives way to what the session does.
-    private var keepsItsWidth: Bool {
-        if case .noAccess = ci.state { return false }
-        return true
+    /// The mark of the session state that says the same of a pipeline.
+    var mark: SessionState {
+        switch state {
+        case .running: .working
+        case .passed: .finishedTurn
+        case .failed: .failed
+        case .pending, .held, .unknown, .noAccess: .unknown
+        }
+    }
+
+    /// Whether there is a pipeline to speak of, not only a reason why none can be shown.
+    var isKnown: Bool {
+        switch state {
+        case .running, .passed, .failed, .held: true
+        case .pending, .unknown, .noAccess: false
+        }
+    }
+}
+
+/// How a merge request stands with its reviewers: how many approved of how many the project asks
+/// for, and whether it is ready to merge. Nothing where nobody approved and nobody has to.
+private struct ApprovalsMark: View {
+    let approvals: Approvals?
+    let isReady: Bool
+
+    private var count: String? {
+        guard let approvals, approvals.given > 0 || approvals.required > 0 else { return nil }
+        if approvals.required > 0 { return "\(approvals.given)/\(approvals.required) approvals" }
+        return approvals.given == 1 ? "1 approval" : "\(approvals.given) approvals"
+    }
+
+    private var text: String? {
+        guard isReady else { return count }
+        return count.map { "\($0) · ready to merge" } ?? "Ready to merge"
     }
 
     var body: some View {
-        let mark = Text("· \(label)")
-            .font(Island.detail)
-            .foregroundStyle(color)
-            .layoutPriority(keepsItsWidth ? 1 : 0)
-        if let url {
+        if let text {
+            Text(text).font(Island.small).foregroundStyle(isReady ? Island.finished : Island.text3)
+                .fixedSize()
+        }
+    }
+}
+
+/// Where the commit of a merge goes, as the host recorded it: "staging deployed · production
+/// deploying". A click opens the pipeline that does it.
+private struct DeploymentsMark: View {
+    let deployments: [Deployment]
+    let pipeline: URL?
+    let open: (URL) -> Void
+
+    private static func words(_ state: Deployment.State) -> String {
+        switch state {
+        case .waiting: "waits"
+        case .running: "deploying"
+        case .succeeded: "deployed"
+        case .failed: "deploy failed"
+        case .unknown: "deploy unknown"
+        }
+    }
+
+    private static func color(_ state: Deployment.State) -> Color {
+        switch state {
+        case .running: Island.working
+        case .succeeded: Island.finished
+        case .failed: Island.failedText
+        case .waiting, .unknown: Island.text3
+        }
+    }
+
+    var body: some View {
+        let mark = HStack(spacing: 4) {
+            ForEach(Array(deployments.enumerated()), id: \.offset) { index, deployment in
+                if index > 0 { Text("·").font(Island.small).foregroundStyle(Island.text4) }
+                Text("\(deployment.environment) \(Self.words(deployment.state))")
+                    .font(Island.small).foregroundStyle(Self.color(deployment.state))
+            }
+        }
+        if let pipeline {
+            mark.contentShape(Rectangle())
+                .onTapGesture { open(pipeline) }
+                .accessibilityAddTraits(.isLink)
+                .accessibilityHint("Opens the pipeline in the browser")
+        } else {
+            mark
+        }
+    }
+}
+
+/// The CI of what the session pushed, as a tag in the row: its mark and a few words, on its
+/// colour. A click on it opens the pipeline, on the job that failed when there is one; the rest
+/// of the row keeps the jump to the session.
+private struct PipelineMark: View {
+    let ci: SessionCI
+    let open: (URL) -> Void
+
+    var body: some View {
+        let mark = HStack(spacing: 4) {
+            if ci.isKnown { StateMark(state: ci.mark, size: 6) }
+            Text(ci.label).font(Island.small).foregroundStyle(ci.color)
+        }
+        .padding(.horizontal, ci.isKnown ? 6 : 0)
+        .frame(height: 15)
+        .background { if ci.isKnown { Capsule().fill(ci.color.opacity(0.13)) } }
+        // The note about a host is long and gives way to what the session does.
+        .layoutPriority(ci.isKnown ? 1 : 0)
+        if let url = ci.link {
             mark.contentShape(Rectangle())
                 .onTapGesture { open(url) }
                 .accessibilityAddTraits(.isLink)
@@ -352,6 +505,120 @@ private struct PipelineMark: View {
         } else {
             mark
         }
+    }
+}
+
+/// The CI of what the session pushed, on a line of its own under the session: the request, the
+/// branch and how the pipeline stands. A click opens the pipeline, a click on the request that.
+private struct PipelineRow: View {
+    let ci: SessionCI
+    let isLast: Bool
+    let isHovered: Bool
+    let open: (URL) -> Void
+
+    var body: some View {
+        HStack(spacing: 7) {
+            StateMark(state: ci.mark, size: 7)
+            Text(ci.label).font(Island.detail).fontWeight(.medium).foregroundStyle(ci.color)
+                .layoutPriority(1)
+            if let request = ci.request { RequestMark(request: request, open: open) }
+            if let branch = ci.request?.branch {
+                Text(branch).font(Island.smallCode).foregroundStyle(Island.text3)
+            }
+            ApprovalsMark(approvals: ci.approvals, isReady: ci.isReadyToMerge)
+            Spacer(minLength: 8)
+            if isHovered, ci.link != nil {
+                Text("Open pipeline").font(Island.small).foregroundStyle(Island.text3).fixedSize()
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .padding(.leading, 34)
+        .padding(.trailing, 10)
+        .frame(maxHeight: .infinity)
+        // The branch that ties the pipeline to its session, as for a subagent.
+        .background(alignment: .topLeading) {
+            let line = Island.branch
+            ZStack(alignment: .topLeading) {
+                line.frame(width: 1, height: isLast ? Island.subagentHeight / 2 : Island.subagentHeight)
+                line.frame(width: 12, height: 1).offset(y: Island.subagentHeight / 2)
+            }
+            .offset(x: 13.5)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if let url = ci.link { open(url) } }
+        .padding(.horizontal, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(ci.link == nil ? [] : .isLink)
+        .accessibilityHint("Opens the pipeline in the browser")
+    }
+}
+
+/// A merge request whose session has left the list, or that was merged: what it is, how its CI
+/// stands and, after the merge, where its commit is deployed to. A click opens it in the browser,
+/// a click on the CI or the deployments its pipeline.
+private struct MergeRequestRow: View {
+    let request: FollowedMergeRequest
+    let isHovered: Bool
+    let open: (URL) -> Void
+    let remove: () -> Void
+
+    /// What a host handed out is opened only when it is a web address.
+    private static func webAddress(_ text: String?) -> URL? {
+        guard let url = text.flatMap(URL.init(string:)), url.scheme == "https" || url.scheme == "http" else { return nil }
+        return url
+    }
+
+    private var url: URL? { Self.webAddress(request.url) }
+    private var pipeline: URL? { Self.webAddress(request.pipelineURL) }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        HStack(spacing: 6) {
+            Text("!\(request.number)").font(Island.smallCode).foregroundStyle(Island.text3)
+                .frame(minWidth: 14, alignment: .leading)
+                .layoutPriority(1)
+            Text(request.title ?? request.branch ?? "Merge request").font(Island.detail).foregroundStyle(Island.text)
+            Text(request.project).font(Island.small).foregroundStyle(Island.text3)
+            if request.isMerged { Text("merged").font(Island.small).foregroundStyle(Island.text3).fixedSize() }
+            if let ci = request.ci {
+                PipelineMark(ci: SessionCI(state: ci, url: request.pipelineURL ?? request.url), open: open)
+                    .fixedSize()
+            }
+            if !request.deployments.isEmpty {
+                DeploymentsMark(deployments: request.deployments, pipeline: pipeline, open: open)
+            }
+            ApprovalsMark(approvals: request.approvals, isReady: request.isReadyToMerge)
+            Spacer(minLength: 8)
+            if isHovered {
+                Text(url == nil ? "No link" : "Open in browser").font(Island.small).foregroundStyle(Island.text3)
+                    .fixedSize()
+                Text("✕").font(Island.small).foregroundStyle(Island.text2)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: remove)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel("Stop following this merge request")
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .frame(maxHeight: .infinity)
+        .background {
+            if isHovered {
+                shape.fill(LinearGradient(colors: Island.rowHover, startPoint: .top, endPoint: .bottom))
+                    .overlay(shape.strokeBorder(Color.white.opacity(0.05), lineWidth: 0.5))
+            }
+        }
+        .contentShape(shape)
+        .onTapGesture { if let url { open(url) } }
+        .padding(.horizontal, 8)
+        .animation(Island.quick, value: isHovered)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(url == nil ? [] : .isLink)
+        .accessibilityHint("Opens the merge request in the browser")
     }
 }
 
@@ -392,59 +659,48 @@ private struct SubagentRow: View {
     }
 }
 
-/// Account-wide usage: both windows with their reset times and the age of the figures.
+/// Account-wide usage, in one line: both windows with their figure and bar. When they reset and
+/// how old the figures are is said on hovering, and in the menu.
 private struct UsageFooter: View {
     let limits: LimitsSnapshot
 
     var body: some View {
-        // The clock ticks here so that "updated … ago" and an expired window do not wait for a payload.
+        // The clock ticks here so that an expired window does not wait for a payload.
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 22) {
-                    meter("5-hour", limits.fiveHour, now: timeline.date)
-                    meter("Weekly", limits.sevenDay, now: timeline.date)
-                }
-                Spacer().frame(height: 10)
-                Text(limits.fiveHour == .noData && limits.sevenDay == .noData
-                    ? LimitText.noDataExplanation : LimitText.freshness(limits))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(Island.text3)
-                    .lineLimit(1)
-                    .frame(height: 14)
+            HStack(spacing: 22) {
+                meter("5-hour", limits.fiveHour, now: timeline.date)
+                meter("Weekly", limits.sevenDay, now: timeline.date)
             }
             .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .help(limits.fiveHour == .noData && limits.sevenDay == .noData
+                ? LimitText.noDataExplanation : LimitText.freshness(limits))
         }
         .overlay(alignment: .top) { Island.divider.frame(height: 1) }
     }
 
     private func meter(_ name: String, _ window: LimitWindow, now: Date) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                Text(name).foregroundStyle(Island.text2)
-                Text(LimitText.figure(window))
-                    .fontWeight(.semibold)
-                    .monospacedDigit()
-                    .foregroundStyle(LimitText.color(window))
-                Spacer(minLength: 4)
-                Text(resets(window, now: now)).foregroundStyle(Island.text3)
-            }
-            .font(Island.small)
-            .lineLimit(1)
-            .frame(height: 15)
+        HStack(spacing: 6) {
+            Text(name).foregroundStyle(Island.text3)
+            Text(LimitText.figure(window))
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .foregroundStyle(LimitText.color(window))
             GeometryReader { proxy in
                 Capsule().fill(Island.barTrack)
                 if case .known(let reading) = window {
                     Capsule().fill(LimitText.barColor(reading.usedPercentage))
                         .opacity(reading.isStale ? 0.5 : 1)
-                        .frame(width: max(4, proxy.size.width * min(1, reading.usedPercentage / 100)))
+                        .frame(width: max(3, proxy.size.width * min(1, reading.usedPercentage / 100)))
                         .animation(Island.ring, value: reading.usedPercentage)
                 }
             }
-            .frame(height: 4)
+            .frame(height: 3)
         }
+        .font(Island.small)
+        .lineLimit(1)
         .frame(maxWidth: .infinity)
+        .help(resets(window, now: now))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(LimitText.line("\(name) limit", window, now: now))
     }

@@ -129,6 +129,11 @@ canvas.companion { display: block; flex: none; }
 .ring .value { stroke-linecap: round; transition: stroke-dashoffset 0.9s var(--settle), stroke 0.3s; }
 .ring.empty .track { stroke: var(--text5); stroke-width: 1.5; stroke-dasharray: 2.2 2.2; }
 .ring.empty .value { display: none; }
+/* MergeRequestsMark in IslandKit.swift: there while a followed merge request waits for the user. */
+.waits { display: none; width: 9px; height: 9px; flex: none; margin-right: 3px; }
+.waits path { fill: none; stroke: var(--text2); stroke-width: 1.2; stroke-linecap: round; }
+.waits circle { fill: var(--text2); }
+.island.request-waits .waits { display: block; }
 .pct { min-width: 24px; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text2); }
 
 /* What opens below the band. It takes the island's width and never sets it. */
@@ -178,6 +183,8 @@ canvas.companion { display: block; flex: none; }
 .list[data-focus="finished"] .group[data-state="finished"],
 .list[data-focus="failed"] .group[data-state="failed"],
 .list[data-focus="unknown"] .group[data-state="unknown"] { opacity: 1; }
+/* Merge requests are no state of a session: they step back less. */
+.list[data-focus] .group[data-state="requests"] { opacity: 0.7; }
 .group-label { display: flex; gap: 6px; padding: 8px 8px 2px; font-size: 11px; font-weight: 600; color: var(--text3); }
 .group-label i { font-style: normal; font-weight: 500; color: var(--text4); }
 .row { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 8px; border-radius: 9px; }
@@ -190,6 +197,15 @@ canvas.companion { display: block; flex: none; }
 .row-side { display: flex; gap: 8px; align-items: baseline; font-size: 11px; font-weight: 500; color: var(--text3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row-side em { font-style: normal; font-weight: 600; color: var(--waiting); }
 .row-side em.failed { font-weight: 400; color: var(--failed-text); }
+.request { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 10px; border-radius: 8px; font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; }
+.request:hover { background: linear-gradient(#1a1a1a, #151515); }
+.request code { font: 10.5px var(--mono); }
+.request b { font-size: 11.5px; font-weight: 400; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.request span { flex: none; }
+.request span:last-child { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.request span[data-kind="working"] { color: var(--working); }
+.request span[data-kind="finished"] { color: var(--finished); }
+.request span[data-kind="failed"] { color: var(--failed-text); }
 
 /* An island that is part of the page: always open, and no wider than what holds it. */
 .island-static .island-body, .island-static.open .island-body {
@@ -246,6 +262,7 @@ body::after {
   .island-body { min-width: 290px; }
   .card { padding: 8px 12px 12px; }
   .row-side em { display: none; }
+  .request small { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

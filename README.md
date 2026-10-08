@@ -6,6 +6,7 @@ A macOS app that lives in the MacBook notch and keeps an eye on your Claude Code
 - **Answer from the notch**: allow or deny a tool call, or pick an answer to the agent's question, without switching windows.
 - **Jump to the session**: the exact Terminal tab, the session in the Claude desktop app, or the VS Code window.
 - **CI of what a session pushed**: the pipeline's state and stage in the session's row, through your own `gh` and `glab` sign-in. The app holds no tokens.
+- **Merge requests, after the session**: the merge request a session pushed to stays in the list with its approvals, says when it is ready to merge, and after the merge shows the pipeline and the environments it is deployed to. On GitLab for now.
 - **Usage limits** of your account, 5-hour and weekly, as a ring beside the notch.
 - **Interruptions that respect you**: loud, smart or quiet, and silent under a Focus.
 
@@ -40,7 +41,7 @@ macOS asks for two permissions when they are first needed:
 - **Automation of Terminal**, to jump to a session's tab and to tell whether that tab is in front.
 - **Full Disk Access**, optional, to see whether a Focus is on. Without it a Focus is not respected.
 
-"Start at Login" is in the app's menu bar menu.
+"Start at login" is in the settings, which the app's menu bar menu opens. The GitLab tab there walks through signing `glab` in, so the island can follow pipelines and merge requests.
 
 ## Update
 
@@ -48,7 +49,7 @@ The app looks for a newer release by itself, checks the download against the upd
 
 ## Uninstall
 
-1. Choose **Remove Completely** in the app's menu: it takes the hooks and the status line wrapper out of `~/.claude/settings.json`.
+1. Choose **Remove…** on the Connection tab of the settings: it takes the hooks and the status line wrapper out of `~/.claude/settings.json`.
 2. Quit the app and delete `Notch Orchestrator.app`.
 3. Delete `~/Library/Application Support/notch-orchestrator` if you want its files gone too.
 

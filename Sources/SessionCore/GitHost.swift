@@ -17,6 +17,14 @@ public struct CLIAnswer: Equatable, Sendable {
     }
 }
 
+/// What stands between the app and a git host.
+public enum HostAccess: Equatable, Sendable {
+    /// The provider's command line tool is not installed.
+    case noTool
+    case signedOut
+    case signedIn
+}
+
 /// Asks a git host about a push through the provider's own command line tool, which carries the
 /// user's sign-in: no token ever passes through here. Only the reading of the answers is decided
 /// here; running the tool is the caller's.
@@ -27,7 +35,7 @@ public enum GitHost {
     /// The pipeline of the pushed commit.
     public static func pipeline(of push: Push, run: Run) -> PipelineLookup {
         switch push.remote.provider {
-        case .gitLab: gitLabPipeline(of: push, run: run)
+        case .gitLab: gitLabPipeline(of: push.commit, on: push.branch, orAnother: true, remote: push.remote, run: run)
         case .gitHub: gitHubChecks(of: push, run: run)
         }
     }
@@ -53,6 +61,12 @@ public enum GitHost {
         }
     }
 
+    /// Whether the provider's tool is there and signed in to `host`.
+    public static func access(to host: String, run: Run) -> HostAccess {
+        guard let answer = run(GitProvider(host: host).tool, ["auth", "status", "--hostname", host]) else { return .noTool }
+        return answer.exitStatus == 0 ? .signedIn : .signedOut
+    }
+
     /// The answer to an API call, when the call went through.
     private static func ask(_ remote: GitRemote, _ path: String, _ run: Run) -> CLIAnswer? {
         let answer = call(remote, path, run)
@@ -76,17 +90,26 @@ public enum GitHost {
 
     // MARK: GitLab
 
-    private static func gitLabPipeline(of push: Push, run: Run) -> PipelineLookup {
-        let remote = push.remote
+    /// The pipeline of `commit` on `branch`. With `orAnother`, where the branch has none, any
+    /// the commit has: a merge request may have a pipeline of its own for it.
+    private static func gitLabPipeline(
+        of commit: String, on branch: String?, orAnother: Bool, remote: GitRemote, run: Run
+    ) -> PipelineLookup {
         let project = "projects/\(escaped(remote.path))"
-        guard let answer = ask(remote, "\(project)/pipelines?sha=\(escaped(push.commit))&per_page=20", run)
+        guard let answer = ask(remote, "\(project)/pipelines?sha=\(escaped(commit))&per_page=20", run)
         // Whatever kept the host from answering, a missing sign-in included: without one GitLab
         // answers for a private project as if it were not there.
         else { return .noAccess }
         guard let pipelines = answer.json as? [[String: Any]] else { return .unknown }
-        // Newest first. A merge request may have a pipeline of its own for the same commit.
-        guard let found = pipelines.first(where: { $0["ref"] as? String == push.branch }) ?? pipelines.first
+        // Newest first.
+        guard let found = pipelines.first(where: { $0["ref"] as? String == branch }) ?? (orAnother ? pipelines.first : nil)
         else { return .noPipeline }
+        return gitLabPipeline(found, on: remote, run: run)
+    }
+
+    /// Reads a pipeline as GitLab lists it, asking for its jobs where the state takes them.
+    private static func gitLabPipeline(_ found: [String: Any], on remote: GitRemote, run: Run) -> PipelineLookup {
+        let project = "projects/\(escaped(remote.path))"
         guard let id = found["id"] as? Int, let status = found["status"] as? String else { return .unknown }
         var pipeline = Pipeline(state: .unknown, url: found["web_url"] as? String)
         func jobs() -> [[String: Any]] {
@@ -108,15 +131,99 @@ public enum GitHost {
             pipeline.state = .running(stage: current?["stage"] as? String)
         case "manual":
             // Held at a step somebody has to start by hand, typically the production deploy.
-            // That counts as passed only when what ran before it is seen to have succeeded.
+            // It is told as that only when what ran before it is seen to have succeeded.
             let jobs = jobs()
             let before = jobs.prefix { !has("manual")($0) }
             let succeeded = before.contains(where: has("success")) && !jobs.filter(isRequired).contains(where: has("failed"))
-            pipeline.state = succeeded ? .passed : .unknown
+            pipeline.state = succeeded ? .held : .unknown
         default:
             break
         }
         return .found(pipeline)
+    }
+
+    /// What GitLab recorded of `commit` going to environments since `time`, oldest first and one
+    /// for each environment. None where it recorded none, nil where it would not say: nothing is
+    /// made of the names of jobs or stages.
+    private static func gitLabDeployments(of commit: String, since time: String?, on remote: GitRemote, run: Run) -> [Deployment]? {
+        // The list cannot be asked for by commit, only by time.
+        let fromThen = time.map { "updated_after=\(escaped($0))&" } ?? ""
+        let path = "projects/\(escaped(remote.path))/deployments?\(fromThen)order_by=updated_at&sort=desc&per_page=100"
+        guard let listed = ask(remote, path, run)?.json as? [[String: Any]] else { return nil }
+        var deployments: [Deployment] = []
+        for found in listed where found["sha"] as? String == commit {
+            guard let environment = (found["environment"] as? [String: Any])?["name"] as? String,
+                  // Newest first: an older one to the same environment was superseded.
+                  !deployments.contains(where: { $0.environment == environment })
+            else { continue }
+            let state: Deployment.State
+            switch found["status"] as? String {
+            // Blocked is what one is that waits to be started by hand.
+            case "created", "blocked": state = .waiting
+            case "running": state = .running
+            case "success": state = .succeeded
+            case "failed": state = .failed
+            default: state = .unknown
+            }
+            deployments.append(Deployment(environment: environment, state: state))
+        }
+        return deployments.reversed()
+    }
+
+    private static func date(_ text: String?) -> Date? {
+        guard let text else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+
+    /// How a followed merge request stands: with the pipeline of its head commit while it is
+    /// open, and with the pipeline and deployments of the commit it was merged as after that.
+    public static func mergeRequest(_ id: FollowedMergeRequest.ID, run: Run) -> MergeRequestLookup {
+        let remote = id.remote
+        // Pull requests are not followed beyond their session yet.
+        guard remote.provider == .gitLab else { return .unknown }
+        guard let answer = ask(remote, "projects/\(escaped(remote.path))/merge_requests/\(id.number)", run)
+        else { return .noAccess }
+        guard let found = answer.json as? [String: Any], let url = found["web_url"] as? String else { return .unknown }
+        let state: MergeRequestStatus.State
+        switch found["state"] as? String {
+        // Locked is what it is for the moment it takes to merge.
+        case "opened", "locked": state = .open
+        case "merged": state = .merged
+        case "closed": state = .closed
+        default: return .unknown
+        }
+        var status = MergeRequestStatus(
+            state: state, title: found["title"] as? String, url: url, branch: found["source_branch"] as? String)
+        if state == .merged {
+            // The tip the target branch got: the merge commit, else the squash commit of a merge
+            // that made none, else the head of one that was fast-forwarded.
+            let mergeCommit = ["merge_commit_sha", "squash_commit_sha", "sha"].lazy.compactMap { found[$0] as? String }.first
+            status.mergedAt = date(found["merged_at"] as? String)
+            guard let mergeCommit else { return .found(status) }
+            // A commit that was fast-forwarded has the pipeline of its own branch too, which
+            // says nothing of the merge. Without the name of the target branch any has to do.
+            let target = found["target_branch"] as? String
+            status.pipeline = gitLabPipeline(of: mergeCommit, on: target, orAnother: target == nil, remote: remote, run: run)
+            if status.pipeline != .noAccess {
+                status.deployments = gitLabDeployments(of: mergeCommit, since: found["merged_at"] as? String, on: remote, run: run)
+            }
+        }
+        guard state == .open else { return .found(status) }
+        if let head = found["head_pipeline"] as? [String: Any] {
+            status.pipeline = gitLabPipeline(head, on: remote, run: run)
+        }
+        // The project's rules are the host's to apply: only its verdict is read.
+        // While it is still working that out, it has not said.
+        let undecided: Set = ["checking", "unchecked", "preparing", "approvals_syncing"]
+        status.isMergeable = (found["detailed_merge_status"] as? String)
+            .flatMap { undecided.contains($0) ? nil : $0 == "mergeable" }
+        if let approvals = ask(remote, "projects/\(escaped(remote.path))/merge_requests/\(id.number)/approvals", run)?.json as? [String: Any],
+           let given = approvals["approved_by"] as? [Any] {
+            status.approvals = Approvals(given: given.count, required: approvals["approvals_required"] as? Int ?? 0)
+        }
+        return .found(status)
     }
 
     // MARK: GitHub

@@ -21,6 +21,11 @@ final class AppModel: ObservableObject {
     /// limits will arrive.
     @Published private(set) var forwardsUsageLimits = true
 
+    /// How the list shows the CI of a session's push.
+    @Published var ciView: CIView {
+        didSet { config.ciView = ciView }
+    }
+
     /// The lines of turns and pipelines that ended, as the core decides to show them.
     let lines = PassthroughSubject<TransientLine, Never>()
 
@@ -33,13 +38,21 @@ final class AppModel: ObservableObject {
 
     init(config: AppConfig) {
         self.config = config
+        ciView = config.ciView
         core = SessionCore(settings: Settings(
             livenessThreshold: TimeInterval(config.livenessMinutes * 60), requestTimeout: config.requestTimeout,
-            interruptionMode: config.interruptionMode))
+            interruptionMode: config.interruptionMode, respectsFocus: config.respectsFocus))
         snapshot = core.snapshot(at: Date())
         if let stored = try? Data(contentsOf: config.usageLimitsFile),
            let usage = try? JSONDecoder().decode(UsageLimits.self, from: stored) {
             self.usage = usage
+        }
+        // A file that cannot be read means none are followed.
+        if let stored = try? Data(contentsOf: config.mergeRequestsFile),
+           let followed = try? JSONDecoder().decode([FollowedMergeRequest].self, from: stored) {
+            core.restore(followed)
+            storedMergeRequests = core.followedMergeRequests.map(\.stored)
+            snapshot = core.snapshot(at: Date())
         }
         refreshLimits()
     }
@@ -88,8 +101,10 @@ final class AppModel: ObservableObject {
                 self.pipelineTicks += 1
                 // A host that could not be asked is tried again only once a minute.
                 self.followPipelines(retrying: self.pipelineTicks % 3 == 0)
+                self.followMergeRequests()
             }
         }
+        followMergeRequests()
     }
 
     func repairConnection() {
@@ -110,6 +125,7 @@ final class AppModel: ObservableObject {
     var livenessMinutes: Int {
         get { config.livenessMinutes }
         set {
+            objectWillChange.send()
             config.livenessMinutes = newValue
             core.settings.livenessThreshold = TimeInterval(newValue * 60)
             refreshSnapshot()
@@ -119,8 +135,20 @@ final class AppModel: ObservableObject {
     var interruptionMode: InterruptionMode {
         get { config.interruptionMode }
         set {
+            objectWillChange.send()
             config.interruptionMode = newValue
             core.settings.interruptionMode = newValue
+            lookAround()
+            refreshSnapshot()
+        }
+    }
+
+    var respectsFocus: Bool {
+        get { config.respectsFocus }
+        set {
+            objectWillChange.send()
+            config.respectsFocus = newValue
+            core.settings.respectsFocus = newValue
             lookAround()
             refreshSnapshot()
         }
@@ -141,6 +169,7 @@ final class AppModel: ObservableObject {
         deliverResolutions()
         let next = core.snapshot(at: Date())
         if next != snapshot { snapshot = next }
+        storeMergeRequests()
         interrupt()
         watchFrontWindow(while: !next.requests.isEmpty)
     }
@@ -320,10 +349,27 @@ final class AppModel: ObservableObject {
     /// Hosts whose pipelines could not be asked for, each with the command that signs in to it.
     var unreachableHosts: [(host: String, signInCommand: String)] {
         var hosts: [String] = []
-        for session in snapshot.sessions {
-            if case .noAccess(let host) = session.ci?.state, !hosts.contains(host) { hosts.append(host) }
+        for state in snapshot.sessions.map(\.ci?.state) + snapshot.mergeRequests.map(\.ci) {
+            if case .noAccess(let host) = state, !hosts.contains(host) { hosts.append(host) }
         }
         return hosts.map { ($0, GitProvider(host: $0).signInCommand(host: $0)) }
+    }
+
+    /// The GitLab hosts the setup is about: gitlab.com, those the user named and those sessions
+    /// pushed to.
+    var gitLabHosts: [String] {
+        var hosts = ["gitlab.com"] + config.gitLabHosts
+        hosts += snapshot.mergeRequests.map(\.remote.host) + unreachableHosts.map(\.host)
+        var seen: Set<String> = []
+        return hosts.filter { GitProvider(host: $0) == .gitLab && seen.insert($0).inserted }
+    }
+
+    /// Whether the tool is installed and signed in to each of `hosts`. Asked off the main thread.
+    func checkAccess(to hosts: [String], then report: @escaping @MainActor ([String: HostAccess]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let found = Dictionary(uniqueKeysWithValues: hosts.map { ($0, GitHost.access(to: $0, run: CommandLineTool.run)) })
+            Task { @MainActor in report(found) }
+        }
     }
 
     /// Looks up the pushes the core follows: only sessions that pushed, off the main thread, and
@@ -351,12 +397,55 @@ final class AppModel: ObservableObject {
                 for observation in found.observations { self.core.reconcile(observation, observedAt: now) }
                 self.isFollowingPipelines = false
                 self.refreshSnapshot()
+                // The request of a push that was just looked up is asked about without waiting.
+                self.followMergeRequests()
                 if self.hasUnreadPush {
                     self.hasUnreadPush = false
                     self.followPipelines(unreadOnly: true)
                 }
             }
         }
+    }
+
+    // MARK: Merge requests
+
+    private var isFollowingMergeRequests = false
+    /// What the file of followed merge requests holds.
+    private var storedMergeRequests: [FollowedMergeRequest] = []
+
+    /// Asks the hosts about the merge requests the core wants asked about now: off the main
+    /// thread, and never two rounds at once.
+    private func followMergeRequests() {
+        let due = core.mergeRequestsToAsk(at: Date())
+        guard !due.isEmpty, !isFollowingMergeRequests else { return }
+        isFollowingMergeRequests = true
+        let pipelines = pipelines
+        DispatchQueue.global(qos: .utility).async {
+            let observations = pipelines.look(at: due)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let now = Date()
+                for observation in observations { self.core.reconcile(observation, observedAt: now) }
+                self.isFollowingMergeRequests = false
+                self.refreshSnapshot()
+            }
+        }
+    }
+
+    /// The user removed the merge request from the list.
+    func stopFollowing(_ mergeRequest: FollowedMergeRequest) {
+        core.stopFollowing(mergeRequest.id)
+        refreshSnapshot()
+    }
+
+    /// Writes the followed merge requests out when they are not what the file holds.
+    private func storeMergeRequests() {
+        let followed = core.followedMergeRequests.map(\.stored)
+        guard followed != storedMergeRequests, let data = try? JSONEncoder().encode(followed) else { return }
+        storedMergeRequests = followed
+        try? FileManager.default.createDirectory(at: config.supportDirectory, withIntermediateDirectories: true)
+        try? data.write(to: config.mergeRequestsFile, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: config.mergeRequestsFile.path)
     }
 
     // MARK: Reconciliation

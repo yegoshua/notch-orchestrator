@@ -338,6 +338,16 @@ private func raised(_ core: SessionCore, at time: Date = t + 2) -> [String] {
         #expect(snapshot.counters == Counters(waiting: 1, finished: 1))
     }
 
+    @Test func aFocusThatIsNotRespectedChangesNothing() {
+        var core = SessionCore(settings: Settings(interruptionMode: .smart, respectsFocus: false))
+        work(&core)
+        look(&core, at: browser, focus: true)
+
+        ask(&core, "r1")
+
+        #expect(core.drainInterruptions() == [.expand(requestID: "r1", sound: true)])
+    }
+
     @Test func focusSuppressesTheSessionInFrontToo() {
         var core = core(.loud)
         work(&core)

@@ -2,6 +2,14 @@ import ClaudeConnection
 import Foundation
 import SessionCore
 
+/// How the list shows the CI of what a session pushed.
+enum CIView: String {
+    /// A mark in the session's own row.
+    case compact
+    /// A line of its own under the session, with the branch.
+    case detailed
+}
+
 /// Where the app keeps its own files and how it reaches Claude Code.
 /// Every value can be overridden from the command line (`-claudeSettingsPath …`) for development,
 /// so a debug build never has to touch the real user settings.
@@ -38,6 +46,9 @@ struct AppConfig {
 
     /// The last known usage limits, kept across restarts.
     var usageLimitsFile: URL { supportDirectory.appendingPathComponent("usage-limits.json") }
+
+    /// The merge requests that are followed, kept across restarts.
+    var mergeRequestsFile: URL { supportDirectory.appendingPathComponent("merge-requests.json") }
 
     /// The secret our hook entries send. Created on first use and kept in a file only the user can
     /// read, in the form curl takes as a header file.
@@ -78,6 +89,30 @@ struct AppConfig {
     var interruptionMode: InterruptionMode {
         get { defaults.string(forKey: "interruptionMode").flatMap(InterruptionMode.init) ?? .smart }
         nonmutating set { defaults.set(newValue.rawValue, forKey: "interruptionMode") }
+    }
+
+    /// A Focus silences the island unless the user chose otherwise.
+    var respectsFocus: Bool {
+        get { defaults.object(forKey: "respectsFocus") == nil || defaults.bool(forKey: "respectsFocus") }
+        nonmutating set { defaults.set(newValue, forKey: "respectsFocus") }
+    }
+
+    /// GitLab hosts of the user's own that the setup checks beside gitlab.com.
+    var gitLabHosts: [String] {
+        get { defaults.stringArray(forKey: "gitLabHosts") ?? [] }
+        nonmutating set { defaults.set(newValue, forKey: "gitLabHosts") }
+    }
+
+    /// Set once the GitLab setup opened by itself, so that it does so only once.
+    var gitLabSetupWasOffered: Bool {
+        get { defaults.bool(forKey: "gitLabSetupWasOffered") }
+        nonmutating set { defaults.set(newValue, forKey: "gitLabSetupWasOffered") }
+    }
+
+    /// A line of its own unless the user chose otherwise.
+    var ciView: CIView {
+        get { defaults.string(forKey: "ciView").flatMap(CIView.init) ?? .detailed }
+        nonmutating set { defaults.set(newValue.rawValue, forKey: "ciView") }
     }
 
     var livenessMinutes: Int {

@@ -15,6 +15,8 @@ export interface TransientLine {
 export interface Band {
   counters: Counters;
   ring: number | null;
+  /** A followed merge request waits for the user: the one quiet mark beside the ring. */
+  mergeRequestWaits?: boolean;
 }
 
 /** One stop of the scene that scrolls through the island's states. */
@@ -103,6 +105,26 @@ export const SESSIONS: { kind: StateKind; group: string; rows: { title: string; 
   },
   { kind: 'finished', group: 'Finished', rows: [{ title: 'Release notes', where: 'frontoffice · CLI', activity: 'Finished · CI passed', time: '3m ago' }] },
   { kind: 'unknown', group: 'Unknown', rows: [{ title: 'Untitled session', where: 'sandbox · CLI', activity: 'State could not be confirmed', time: '1h 00m ago' }] },
+];
+
+/** A part of a merge request's row: a few words in the colour of a state, or muted. */
+export interface RequestPart {
+  text: string;
+  kind?: StateKind;
+}
+
+/** The merge requests sessions pushed to, in the section under the sessions. */
+export const MERGE_REQUESTS: { number: number; title: string; project: string; parts: RequestPart[]; waits: boolean }[] = [
+  {
+    number: 128, title: 'Add the funnel events', project: 'frontoffice', waits: true,
+    parts: [{ text: 'CI passed', kind: 'finished' }, { text: '2/2 approvals · ready to merge', kind: 'finished' }],
+  },
+  {
+    number: 124, title: 'Rate limit the webhook', project: 'payments-api', waits: false,
+    parts: [
+      { text: 'merged' }, { text: 'staging deployed', kind: 'finished' }, { text: 'production deploying', kind: 'working' },
+    ],
+  },
 ];
 
 export const REPOSITORY = 'yegoshua/notch-orchestrator';
