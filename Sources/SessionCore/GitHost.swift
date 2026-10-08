@@ -87,6 +87,12 @@ public enum GitHost {
         // Newest first. A merge request may have a pipeline of its own for the same commit.
         guard let found = pipelines.first(where: { $0["ref"] as? String == push.branch }) ?? pipelines.first
         else { return .noPipeline }
+        return gitLabPipeline(found, on: remote, run: run)
+    }
+
+    /// Reads a pipeline as GitLab lists it, asking for its jobs where the state takes them.
+    private static func gitLabPipeline(_ found: [String: Any], on remote: GitRemote, run: Run) -> PipelineLookup {
+        let project = "projects/\(escaped(remote.path))"
         guard let id = found["id"] as? Int, let status = found["status"] as? String else { return .unknown }
         var pipeline = Pipeline(state: .unknown, url: found["web_url"] as? String)
         func jobs() -> [[String: Any]] {
@@ -117,6 +123,30 @@ public enum GitHost {
             break
         }
         return .found(pipeline)
+    }
+
+    /// How a followed merge request stands, with the pipeline of its head commit while it is open.
+    public static func mergeRequest(_ id: FollowedMergeRequest.ID, run: Run) -> MergeRequestLookup {
+        let remote = id.remote
+        // Pull requests are not followed beyond their session yet.
+        guard remote.provider == .gitLab else { return .unknown }
+        guard let answer = ask(remote, "projects/\(escaped(remote.path))/merge_requests/\(id.number)", run)
+        else { return .noAccess }
+        guard let found = answer.json as? [String: Any], let url = found["web_url"] as? String else { return .unknown }
+        let state: MergeRequestStatus.State
+        switch found["state"] as? String {
+        // Locked is what it is for the moment it takes to merge.
+        case "opened", "locked": state = .open
+        case "merged": state = .merged
+        case "closed": state = .closed
+        default: return .unknown
+        }
+        var status = MergeRequestStatus(
+            state: state, title: found["title"] as? String, url: url, branch: found["source_branch"] as? String)
+        if state == .open, let head = found["head_pipeline"] as? [String: Any] {
+            status.pipeline = gitLabPipeline(head, on: remote, run: run)
+        }
+        return .found(status)
     }
 
     // MARK: GitHub

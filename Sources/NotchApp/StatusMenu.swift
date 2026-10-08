@@ -46,6 +46,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
         menu.addItem(liveness)
         HotkeyMenu.shared.add(to: menu)
+        addCIView(to: menu)
         addInterruptions(to: menu)
         addScreens(to: menu)
         addLoginItem(to: menu)
@@ -86,6 +87,22 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             let copy = add("Copy Sign-In Command: \(command)", #selector(copyCommand(_:)), to: menu)
             copy.representedObject = command
         }
+    }
+
+    private static let ciViews: [(view: CIView, title: String)] = [
+        (.detailed, "Detailed: a line of its own under the session"),
+        (.compact, "Compact: a mark in the session's row"),
+    ]
+
+    private func addCIView(to menu: NSMenu) {
+        let item = NSMenuItem(title: "Show CI As", action: nil, keyEquivalent: "")
+        item.submenu = NSMenu()
+        for (index, choice) in Self.ciViews.enumerated() {
+            let entry = add(choice.title, #selector(setCIView(_:)), to: item.submenu!)
+            entry.tag = index
+            entry.state = model.ciView == choice.view ? .on : .off
+        }
+        menu.addItem(item)
     }
 
     private static let modes: [(mode: InterruptionMode, title: String)] = [
@@ -172,6 +189,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func repair() { model.repairConnection() }
     @objc private func remove() { model.removeConnection() }
     @objc private func setLiveness(_ sender: NSMenuItem) { model.livenessMinutes = sender.tag }
+    @objc private func setCIView(_ sender: NSMenuItem) { model.ciView = Self.ciViews[sender.tag].view }
+
     @objc private func setMode(_ sender: NSMenuItem) { model.interruptionMode = Self.modes[sender.tag].mode }
 
     @objc private func copyCommand(_ sender: NSMenuItem) {

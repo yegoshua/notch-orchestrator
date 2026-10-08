@@ -344,3 +344,115 @@ private func checkRuns(_ runs: [(name: String, status: String, conclusion: Strin
             == "projects/group%2Fapps%2Ffrontoffice/merge_requests?source_branch=fix%2FHUB-1%20%26%20more&order_by=updated_at&per_page=1")
     }
 }
+
+private let followedRequest = FollowedMergeRequest.ID(remote: GitRemote(host: "gitlab.com", path: "group/apps/frontoffice"), number: 12)
+
+/// A merge request as GitLab answers for one, cut down to what is read and a little around it.
+private func gitLabMergeRequest(_ state: String = "opened", headPipeline: String? = "running") -> String {
+    let pipeline = headPipeline.map {
+        """
+        {"id":2923343714,"iid":831,"project_id":80556934,"sha":"8fe791d2","ref":"refs/merge-requests/12/head",\
+        "status":"\($0)","source":"merge_request_event",\
+        "web_url":"https://gitlab.com/group/apps/frontoffice/-/pipelines/2923343714"}
+        """
+    } ?? "null"
+    return """
+    {"id":4301,"iid":12,"project_id":80556934,"title":"Add the funnel events","state":"\(state)",\
+    "target_branch":"main","source_branch":"feature","draft":false,"detailed_merge_status":"not_approved",\
+    "sha":"8fe791d2","merge_commit_sha":null,"squash_commit_sha":null,\
+    "web_url":"https://gitlab.com/group/apps/frontoffice/-/merge_requests/12","head_pipeline":\(pipeline)}
+    """
+}
+
+@Suite struct GitLabMergeRequests {
+    @Test func anOpenMergeRequestIsReadWithThePipelineOfItsHead() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest()),
+            "/jobs": ok(gitLabJobs([("deploy", "deploy", "created", false), ("unit", "test", "running", false)])),
+        ])
+
+        #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .found(MergeRequestStatus(
+            state: .open, title: "Add the funnel events", url: "https://gitlab.com/group/apps/frontoffice/-/merge_requests/12",
+            branch: "feature", pipeline: .found(Pipeline(state: .running(stage: "test"), url: gitLabPipelineURL)))))
+    }
+
+    @Test func itIsAskedForByItsNumberInTheProjectOnItsHost() {
+        let cli = Recorded(["merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil))])
+
+        _ = GitHost.mergeRequest(followedRequest, run: cli.run)
+
+        #expect(cli.calls == [["glab", "api", "--hostname", "gitlab.com", "projects/group%2Fapps%2Ffrontoffice/merge_requests/12"]])
+    }
+
+    @Test func thePipelineOfTheHeadIsTheOneTheMergeRequestNames() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: "failed")),
+            "/jobs": ok(gitLabJobs([("unit", "test", "failed", false)])),
+        ])
+
+        _ = GitHost.mergeRequest(followedRequest, run: cli.run)
+
+        // Not looked for by commit: a pipeline of the merged result runs on another one.
+        #expect(cli.calls.map(\.last) == [
+            "projects/group%2Fapps%2Ffrontoffice/merge_requests/12",
+            "projects/group%2Fapps%2Ffrontoffice/pipelines/2923343714/jobs?per_page=100",
+        ])
+    }
+
+    @Test func oneWithoutAPipelineHasNone() {
+        let cli = Recorded(["merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil))])
+
+        guard case .found(let status) = GitHost.mergeRequest(followedRequest, run: cli.run) else {
+            Issue.record("not found")
+            return
+        }
+        #expect(status.pipeline == .noPipeline)
+    }
+
+    @Test func oneThatIsBeingMergedIsStillOpen() {
+        let cli = Recorded(["merge_requests/12": ok(gitLabMergeRequest("locked", headPipeline: nil))])
+
+        guard case .found(let status) = GitHost.mergeRequest(followedRequest, run: cli.run) else {
+            Issue.record("not found")
+            return
+        }
+        #expect(status.state == .open)
+    }
+
+    @Test(arguments: [("merged", MergeRequestStatus.State.merged), ("closed", .closed)])
+    func oneThatEndedIsReadWithoutItsPipeline(state: String, expected: MergeRequestStatus.State) {
+        let cli = Recorded(["merge_requests/12": ok(gitLabMergeRequest(state, headPipeline: "success"))])
+
+        #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .found(MergeRequestStatus(
+            state: expected, title: "Add the funnel events",
+            url: "https://gitlab.com/group/apps/frontoffice/-/merge_requests/12", branch: "feature")))
+        #expect(cli.calls.count == 1)
+    }
+
+    @Test func aProjectTheSignInDoesNotReachIsNoAccess() {
+        let cli = Recorded(["merge_requests/12": refused("{\"message\":\"404 Project Not Found\"}", "glab: 404 Project Not Found (HTTP 404)")])
+
+        #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .noAccess)
+    }
+
+    @Test func aMissingToolIsNoAccess() {
+        let cli = Recorded([:])
+        cli.isInstalled = false
+
+        #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .noAccess)
+    }
+
+    @Test(arguments: ["", "[]", "{\"iid\":12}", "{\"state\":\"draft\",\"web_url\":\"https://gitlab.com/x\"}"])
+    func anAnswerThatCannotBeReadIsUnknown(output: String) {
+        let cli = Recorded(["merge_requests/12": ok(output)])
+
+        #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .unknown)
+    }
+
+    @Test func aPullRequestOnGitHubIsNotAskedAbout() {
+        let cli = Recorded([:])
+
+        #expect(GitHost.mergeRequest(FollowedMergeRequest.ID(remote: gitHubPush.remote, number: 5), run: cli.run) == .unknown)
+        #expect(cli.calls.isEmpty)
+    }
+}

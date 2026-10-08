@@ -99,6 +99,9 @@ public struct Snapshot: Equatable, Sendable {
     /// Those of them the island is to put before the user by itself, expanded. The others wait
     /// to be looked for: their session is in front, or the user asked for quiet.
     public var raised: [PendingRequest]
+    /// Merge requests that sessions pushed to and that no session in the list shows any more,
+    /// by repository and number.
+    public var mergeRequests: [FollowedMergeRequest] = []
 }
 
 public struct Settings: Equatable, Sendable {
@@ -115,11 +118,14 @@ public struct Settings: Equatable, Sendable {
     public var pipelineLookupTimeout: TimeInterval
     /// How long a running pipeline may go without being seen running before it is unknown.
     public var pipelineConfirmationTimeout: TimeInterval
+    /// How often a followed merge request is asked about while nothing of it is running.
+    public var mergeRequestInterval: TimeInterval
 
     public init(
         livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180,
         requestTimeout: TimeInterval = 300, interruptionMode: InterruptionMode = .smart,
-        pipelineLookupTimeout: TimeInterval = 120, pipelineConfirmationTimeout: TimeInterval = 300
+        pipelineLookupTimeout: TimeInterval = 120, pipelineConfirmationTimeout: TimeInterval = 300,
+        mergeRequestInterval: TimeInterval = 240
     ) {
         self.livenessThreshold = livenessThreshold
         self.unconfirmedWorkTimeout = unconfirmedWorkTimeout
@@ -127,6 +133,7 @@ public struct Settings: Equatable, Sendable {
         self.interruptionMode = interruptionMode
         self.pipelineLookupTimeout = pipelineLookupTimeout
         self.pipelineConfirmationTimeout = pipelineConfirmationTimeout
+        self.mergeRequestInterval = mergeRequestInterval
     }
 }
 
@@ -144,6 +151,8 @@ public struct SessionCore {
     private var attention = Attention()
     /// Interruptions nobody has collected yet.
     private var interruptions: [Interruption] = []
+    /// The merge requests sessions pushed to. They outlive their sessions.
+    private var mergeRequests: [FollowedMergeRequest.ID: TrackedMergeRequest] = [:]
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -220,6 +229,17 @@ public struct SessionCore {
         var endedAt: Date?
         /// When a push was reported that the repository has not been read for yet.
         var unreadSince: Date?
+        /// The request of this push was taken up to be followed, or found not to be one to
+        /// follow. Once per push: a request the user stopped following stays so until the next.
+        var requestWasTakenUp = false
+    }
+
+    /// A followed merge request as the core keeps it.
+    private struct TrackedMergeRequest {
+        var shown: FollowedMergeRequest
+        /// When the host was last asked about it. Nil while it never was since it came to be
+        /// followed, since the app started, or since a session pushed to it.
+        var askedAt: Date?
     }
 
     /// A request as the core keeps it.
@@ -710,6 +730,7 @@ public struct SessionCore {
             }
         }
         record.ci = ci
+        takeUpRequest(of: &record)
         records[observation.sessionID] = record
         if ci.state != before { announcePipelineEnd(of: record) }
     }
@@ -737,6 +758,98 @@ public struct SessionCore {
         if let request = ci.request { return request }
         guard let branch = ci.push?.branch else { return nil }
         return record.desktopRequests.last { $0.branch == branch }
+    }
+
+    // MARK: Merge requests
+
+    /// Starts following the request of the session's push once it is known, or carries on with
+    /// it when it is followed already. Only an open one, and only on GitLab so far.
+    private mutating func takeUpRequest(of record: inout Record) {
+        guard var ci = record.ci, !ci.requestWasTakenUp, let push = ci.push,
+              let request = Self.request(of: record)
+        else { return }
+        ci.requestWasTakenUp = true
+        record.ci = ci
+        let state = request.state?.lowercased()
+        guard push.remote.provider == .gitLab, state == nil || state == "opened" || state == "open" else { return }
+        let id = FollowedMergeRequest.ID(remote: push.remote, number: request.number)
+        var tracked = mergeRequests[id] ?? TrackedMergeRequest(
+            shown: FollowedMergeRequest(remote: push.remote, number: request.number, url: request.url))
+        tracked.shown.branch = request.branch ?? tracked.shown.branch
+        // What was pushed is news about it.
+        tracked.askedAt = nil
+        mergeRequests[id] = tracked
+    }
+
+    /// Every followed merge request, shown by a session or not: what is to be kept across a restart.
+    public var followedMergeRequests: [FollowedMergeRequest] {
+        mergeRequests.values.map(\.shown).sorted { ($0.remote.path, $0.number) < ($1.remote.path, $1.number) }
+    }
+
+    /// Takes back merge requests that were followed before the app quit. How they stand is not
+    /// known any more and is asked at once.
+    public mutating func restore(_ stored: [FollowedMergeRequest]) {
+        for var request in stored where mergeRequests[request.id] == nil {
+            request.ci = nil
+            request.pipelineURL = nil
+            mergeRequests[request.id] = TrackedMergeRequest(shown: request)
+        }
+    }
+
+    /// The merge requests the host is to be asked about at `time`: one with a pipeline running
+    /// every time, the others once in a while.
+    public func mergeRequestsToAsk(at time: Date) -> [FollowedMergeRequest.ID] {
+        mergeRequests.values.filter { tracked in
+            guard let askedAt = tracked.askedAt else { return true }
+            return tracked.shown.ci?.isFollowed == true || time.timeIntervalSince(askedAt) >= settings.mergeRequestInterval
+        }
+        .map(\.shown).sorted { ($0.remote.path, $0.number) < ($1.remote.path, $1.number) }.map(\.id)
+    }
+
+    /// Takes in what the git host said about a followed merge request. One that was merged or
+    /// closed is followed no longer.
+    public mutating func reconcile(_ observation: MergeRequestObservation, observedAt time: Date) {
+        guard var tracked = mergeRequests[observation.id] else { return }
+        tracked.askedAt = time
+        switch observation.lookup {
+        case .found(let status):
+            guard status.state == .open else {
+                mergeRequests[observation.id] = nil
+                return
+            }
+            tracked.shown.title = status.title ?? tracked.shown.title
+            tracked.shown.url = status.url
+            tracked.shown.branch = status.branch ?? tracked.shown.branch
+            tracked.shown.pipelineURL = nil
+            switch status.pipeline {
+            case .found(let pipeline):
+                tracked.shown.pipelineURL = pipeline.url
+                switch pipeline.state {
+                case .running(let stage): tracked.shown.ci = .running(stage: stage)
+                case .passed: tracked.shown.ci = .passed
+                case .failed:
+                    tracked.shown.ci = .failed
+                    tracked.shown.pipelineURL = pipeline.failedJobURL ?? pipeline.url
+                case .unknown: tracked.shown.ci = .unknown
+                }
+            case .noPipeline: tracked.shown.ci = nil
+            case .noAccess: tracked.shown.ci = .noAccess(host: observation.id.remote.host)
+            case .unknown: tracked.shown.ci = .unknown
+            }
+        case .noAccess:
+            tracked.shown.ci = .noAccess(host: observation.id.remote.host)
+            tracked.shown.pipelineURL = nil
+        case .unknown:
+            tracked.shown.ci = .unknown
+            tracked.shown.pipelineURL = nil
+        }
+        mergeRequests[observation.id] = tracked
+    }
+
+    /// The user does not want to hear of this merge request any more. A session that pushes to
+    /// it again brings it back.
+    public mutating func stopFollowing(_ id: FollowedMergeRequest.ID) {
+        mergeRequests[id] = nil
     }
 
     // MARK: Reconciliation
@@ -859,6 +972,13 @@ public struct SessionCore {
                     ci: record.ci.map { SessionCI(state: $0.state, url: $0.url, request: Self.request(of: record)) })
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
+        // A merge request is in a session's row while that session is in the list.
+        let inRows = Set(records.values.compactMap { record -> FollowedMergeRequest.ID? in
+            guard let state = record.state, isLive(record, in: state, at: time),
+                  let remote = record.ci?.push?.remote, let request = Self.request(of: record)
+            else { return nil }
+            return FollowedMergeRequest.ID(remote: remote, number: request.number)
+        })
         return Snapshot(
             sessions: live,
             counters: Counters(
@@ -868,7 +988,8 @@ public struct SessionCore {
                 failed: live.filter { $0.state == .failed }.count
             ),
             requests: queue.map(\.request),
-            raised: queue.filter(\.isRaised).map(\.request)
+            raised: queue.filter(\.isRaised).map(\.request),
+            mergeRequests: followedMergeRequests.filter { !inRows.contains($0.id) }
         )
     }
 

@@ -37,6 +37,11 @@ final class PipelinePoller: @unchecked Sendable {
         return (pushes, observations)
     }
 
+    /// Asks the host about each of the merge requests. Blocks while the tools run.
+    func look(at mergeRequests: [FollowedMergeRequest.ID]) -> [MergeRequestObservation] {
+        mergeRequests.map { MergeRequestObservation(id: $0, lookup: GitHost.mergeRequest($0, run: CommandLineTool.run)) }
+    }
+
     /// What is checked out in the repository at `cwd` and where its branch is pushed to. Nil when
     /// that is no repository, or one without a remote on a host.
     private static func push(of sessionID: String, in cwd: String) -> Push? {

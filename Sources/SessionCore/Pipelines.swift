@@ -25,7 +25,7 @@ public enum GitProvider: Equatable, Sendable {
 }
 
 /// Where a repository is pushed to.
-public struct GitRemote: Equatable, Sendable {
+public struct GitRemote: Hashable, Codable, Sendable {
     public var host: String
     /// The project on the host, `group/project`.
     public var path: String
@@ -258,5 +258,96 @@ public struct FollowedPush: Equatable, Sendable {
         self.push = push
         self.request = request
         self.lacksAccess = lacksAccess
+    }
+}
+
+/// A pull or merge request the core goes on following after the session that pushed to it has
+/// left the list. What is stored of it is what tells it apart; how it stands is asked afresh.
+public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
+    public struct ID: Hashable, Sendable {
+        public var remote: GitRemote
+        public var number: Int
+
+        public init(remote: GitRemote, number: Int) {
+            self.remote = remote
+            self.number = number
+        }
+    }
+
+    public var remote: GitRemote
+    public var number: Int
+    public var url: String
+    /// Nil until the host was asked.
+    public var title: String?
+    /// The branch it asks to merge.
+    public var branch: String?
+    /// The pipeline of its head commit. Nil when it has none, or none is known yet.
+    public var ci: CIState?
+    /// That pipeline, or the job that failed when that is known.
+    public var pipelineURL: String?
+
+    public var id: ID { ID(remote: remote, number: number) }
+    /// The repository by its name alone.
+    public var project: String { (remote.path as NSString).lastPathComponent }
+
+    public init(
+        remote: GitRemote, number: Int, url: String, title: String? = nil, branch: String? = nil,
+        ci: CIState? = nil, pipelineURL: String? = nil
+    ) {
+        self.remote = remote
+        self.number = number
+        self.url = url
+        self.title = title
+        self.branch = branch
+        self.ci = ci
+        self.pipelineURL = pipelineURL
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case remote, number, url, title, branch
+    }
+}
+
+/// A merge request as its git host tells it.
+public struct MergeRequestStatus: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        case open
+        case merged
+        case closed
+    }
+
+    public var state: State
+    public var title: String?
+    public var url: String
+    public var branch: String?
+    /// The pipeline of its head commit.
+    public var pipeline: PipelineLookup
+
+    public init(state: State, title: String? = nil, url: String, branch: String? = nil, pipeline: PipelineLookup = .noPipeline) {
+        self.state = state
+        self.title = title
+        self.url = url
+        self.branch = branch
+        self.pipeline = pipeline
+    }
+}
+
+/// The answer to "how does this merge request stand".
+public enum MergeRequestLookup: Equatable, Sendable {
+    case found(MergeRequestStatus)
+    /// The host could not be asked: no sign-in, no tool, no way to it.
+    case noAccess
+    /// The host answered something that could not be read.
+    case unknown
+}
+
+/// What a look at the git host found out about a followed merge request.
+public struct MergeRequestObservation: Equatable, Sendable {
+    public var id: FollowedMergeRequest.ID
+    public var lookup: MergeRequestLookup
+
+    public init(id: FollowedMergeRequest.ID, lookup: MergeRequestLookup) {
+        self.id = id
+        self.lookup = lookup
     }
 }
