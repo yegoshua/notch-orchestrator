@@ -1,0 +1,50 @@
+---
+// An editor with the app's own source in it, seen at an angle and out of focus: what you are
+// busy with when the island wants you.
+import { highlightSwift } from '../lib/highlight';
+import { COMPANION_SWIFT, FILES, FIRST_LINE, OPEN_FILE } from '../lib/source';
+
+const lines = COMPANION_SWIFT.split('\n').map(highlightSwift);
+---
+<div class="editor" aria-hidden="true">
+  <div class="tabs"><i></i><i></i><i></i><span class="open">{OPEN_FILE}</span><span>IslandKit.swift</span><span>SessionCore.swift</span></div>
+  <div class="body">
+    <ul class="files">
+      <li class="folder">Sources / NotchApp</li>
+      {FILES.map(file => <li class:list={{ open: file === OPEN_FILE }}>{file}</li>)}
+    </ul>
+    <ol class="code" style={`counter-reset: line ${FIRST_LINE - 1}`}>
+      {lines.map(tokens => <li>{tokens.map(([text, kind]) => (kind === 'plain' ? text : <span class={kind}>{text}</span>))}</li>)}
+    </ol>
+  </div>
+</div>
+
+<style>
+  .editor {
+    width: 1080px; border-radius: 14px; overflow: hidden;
+    background: linear-gradient(160deg, rgb(255 255 255 / 0.05), transparent 30%), #0e0e10;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), 0 60px 140px -40px #000;
+  }
+  .tabs { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; background: rgb(255 255 255 / 0.03); border-bottom: 1px solid #000; font: 12px var(--sans); color: var(--text4); }
+  .tabs i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; opacity: 0.7; }
+  .tabs i:nth-child(2) { background: #febc2e; }
+  .tabs i:nth-child(3) { background: #28c840; margin-right: 14px; }
+  .tabs span { padding: 5px 14px; border-radius: 7px; }
+  .tabs .open { background: rgb(255 255 255 / 0.08); color: var(--text); }
+
+  .body { display: grid; grid-template-columns: 210px 1fr; }
+  .files { padding: 14px 0; border-right: 1px solid rgb(255 255 255 / 0.05); font: 12px/26px var(--sans); color: var(--text4); }
+  .files li { padding: 0 18px 0 30px; }
+  .files .folder { padding-left: 18px; color: var(--text3); font-weight: 600; }
+  .files .open { background: rgb(255 255 255 / 0.06); color: var(--text); }
+
+  .code { padding: 14px 0; font: 12.5px/21px var(--mono); color: #c9c8c4; white-space: pre; }
+  .code li { counter-increment: line; }
+  .code li::before { content: counter(line); display: inline-block; width: 52px; padding-right: 18px; text-align: right; color: #45443f; }
+  .comment { color: #6f6e6a; font-style: italic; }
+  .string { color: #e9b872; }
+  .number { color: #d9a66c; }
+  .keyword { color: #e07a52; }
+  .type { color: #8fb8de; }
+  .call { color: #9fd3b4; }
+</style>

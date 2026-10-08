@@ -1,0 +1,77 @@
+---
+// A terminal somewhere in the dark behind the hero: one of the sessions the island watches.
+import type { Line, Terminal } from '../lib/terminals';
+import Mark from './Mark.astro';
+
+interface Props {
+  terminal: Terminal;
+  /** Where its top left corner is, in percent of the hero. */
+  x: number;
+  y: number;
+  width: number;
+  /** 0 for far away, 1 for close: sets how sharp and bright it is, and how much it moves. */
+  depth: number;
+  /** Left out on narrow screens. */
+  wideOnly?: boolean;
+}
+const { terminal, x, y, width, depth, wideOnly = false } = Astro.props;
+const spans = (line: Line) => line.map(span => (typeof span === 'string' ? { text: span, tone: undefined } : { text: span[0], tone: span[1] }));
+const style = [
+  `left: ${x}%`, `top: ${y}%`, `width: ${width}px`,
+  // What is far away moves less than the page, so it lags behind it.
+  `--speed: ${Math.round((1 - depth) * 180)}`, `--reach: ${Math.round(6 + depth * 26)}`,
+  `--blur: ${((1 - depth) * 3.2).toFixed(1)}px`, `--dim: ${(0.42 + depth * 0.58).toFixed(2)}`,
+  // Every window is turned a little towards the middle of the page.
+  `--turn: ${((50 - (x + 12)) / 50 * 16).toFixed(1)}deg`, `--scale: ${(0.82 + depth * 0.18).toFixed(2)}`,
+].join('; ');
+---
+<div class:list={['terminal', 'layer', { 'wide-only': wideOnly }]} style={style} data-kind={terminal.kind} aria-hidden="true">
+  <div class="drift">
+    <div class="window">
+      <div class="titlebar"><i></i><i></i><i></i><span><Mark kind={terminal.kind} />{terminal.title}</span></div>
+      <div class="output">
+        {terminal.lines.map(line => <p>{spans(line).map(span => <span class={span.tone}>{span.text}</span>)}</p>)}
+        {terminal.asks && (
+          <div class="asks">
+            {terminal.asks.map(line => <p>{spans(line).map(span => <span class={span.tone}>{span.text}</span>)}</p>)}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .terminal { position: absolute; filter: blur(var(--blur)); opacity: var(--dim); }
+  .window {
+    border-radius: 11px; overflow: hidden; transform: perspective(1100px) rotateY(var(--turn)) rotateX(3deg) scale(var(--scale)); transform-origin: 50% 0;
+    background: linear-gradient(160deg, rgb(255 255 255 / 0.07), transparent 34%), #0d0d0f;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1), inset 0 1px 0 rgb(255 255 255 / 0.12), 0 40px 80px -24px #000;
+  }
+  .titlebar { position: relative; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; background: rgb(255 255 255 / 0.035); border-bottom: 1px solid rgb(0 0 0 / 0.6); }
+  .titlebar i { width: 9px; height: 9px; border-radius: 50%; background: #ff5f57; opacity: 0.75; }
+  .titlebar i:nth-child(2) { background: #febc2e; }
+  .titlebar i:nth-child(3) { background: #28c840; }
+  .titlebar span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font: 500 11px var(--sans); color: var(--text3); }
+
+  .output { padding: 10px 12px 13px; font: 10.5px/16px var(--mono); color: #c9c8c4; white-space: pre; overflow: hidden; }
+  .dim { color: #6f6e6a; }
+  .user { color: #f2f1ee; }
+  .tool { color: #f2f1ee; font-weight: 600; }
+  .add { color: #9fd3b4; background: rgb(127 183 154 / 0.12); }
+  .del { color: #e3a49a; background: rgb(207 127 115 / 0.12); }
+  .ok { color: #7fb79a; }
+  .err { color: #e3a49a; }
+  .busy { color: #e07a52; }
+  .pick { color: #f2b441; font-weight: 600; }
+
+  .asks { margin-top: 8px; padding: 8px 10px; border: 1px solid rgb(242 180 65 / 0.55); border-radius: 7px; background: rgb(242 180 65 / 0.05); }
+  [data-kind="waiting"] .window {
+    box-shadow: inset 0 0 0 1px rgb(242 180 65 / 0.42), inset 0 1px 0 rgb(255 255 255 / 0.12), 0 0 90px -14px rgb(242 180 65 / 0.4), 0 40px 80px -24px #000;
+  }
+
+  @media (max-width: 860px) {
+    .wide-only { display: none; }
+    .terminal { scale: 0.7; transform-origin: top left; }
+  }
+</style>

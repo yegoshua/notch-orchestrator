@@ -2,7 +2,8 @@
 // The hero: the island at the top of the page throws its light on the companion, and the
 // sessions it watches hang in the dark around it.
 import { REPOSITORY } from '../lib/demo';
-import GhostWindow from './GhostWindow.astro';
+import { TERMINALS } from '../lib/terminals';
+import TerminalWindow from './TerminalWindow.astro';
 ---
 <section class="hero" id="top" data-parallax data-pointer>
   <header>
@@ -11,11 +12,11 @@ import GhostWindow from './GhostWindow.astro';
   </header>
 
   <div class="depth" aria-hidden="true">
-    <GhostWindow title="cashier-lite" kind="working" x={5} y={15} width={300} depth={0.45} />
-    <GhostWindow title="frontoffice" kind="working" x={24} y={33} width={230} depth={0.12} wideOnly />
-    <GhostWindow title="payments-api" kind="waiting" x={66} y={13} width={330} depth={0.9} />
-    <GhostWindow title="docs" kind="finished" x={80} y={47} width={250} depth={0.3} wideOnly />
-    <GhostWindow title="sandbox" kind="working" x={57} y={38} width={210} depth={0.05} wideOnly />
+    <TerminalWindow terminal={TERMINALS.widget} x={3} y={13} width={440} depth={0.55} />
+    <TerminalWindow terminal={TERMINALS.tests} x={20} y={40} width={380} depth={0.15} wideOnly />
+    <TerminalWindow terminal={TERMINALS.migration} x={62} y={11} width={400} depth={1} />
+    <TerminalWindow terminal={TERMINALS.docs} x={74} y={50} width={360} depth={0.35} wideOnly />
+    <TerminalWindow terminal={TERMINALS.sandbox} x={47} y={30} width={300} depth={0} wideOnly />
   </div>
 
   <div class="beam layer" style="--speed: 60"></div>

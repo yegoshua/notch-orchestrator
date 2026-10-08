@@ -1,14 +1,10 @@
 ---
 // "Without the mouse": the editor you are busy in fills the screen behind the keys.
-import { codeLines } from '../lib/code';
-
-const lines = codeLines(7, 34);
+import EditorBackdrop from './EditorBackdrop.astro';
 ---
 <section class="keys" id="keys" data-parallax>
-  <div class="editor layer" style="--speed: 140" aria-hidden="true">
-    {lines.map((line, number) => (
-      <p><span>{number + 1}</span><i style={`width: ${line.indent}%`}></i>{line.tokens.map((token, index) => <b class={`t${index % 4}`} style={`width: ${token}%`}></b>)}</p>
-    ))}
+  <div class="backdrop layer" style="--speed: 150" aria-hidden="true">
+    <div class="tilt"><EditorBackdrop /></div>
   </div>
   <div class="veil" aria-hidden="true"></div>
 
@@ -38,14 +34,9 @@ const lines = codeLines(7, 34);
 <style>
   .keys { position: relative; min-height: 100svh; display: flex; align-items: flex-end; overflow: clip; }
 
-  /* A screenful of code, out of focus. */
-  .editor { position: absolute; inset: -14% 0 -14% 34%; display: grid; align-content: start; gap: 2.1vh; padding: 6vh 4vw; filter: blur(2.5px); opacity: 0.8; }
-  .editor p { display: flex; align-items: center; gap: 0.9vw; height: 1.3vh; min-height: 9px; }
-  .editor span { width: 2.2em; font: 12px var(--mono); color: #3a3a3a; text-align: right; }
-  .editor b { height: 100%; border-radius: 6px; background: #34322f; }
-  .editor .t1 { background: #5a4a35; }
-  .editor .t2 { background: #34465c; }
-  .editor .t3 { background: #3c5445; }
+  /* The editor, turned away from the reader and a little out of focus. */
+  .backdrop { position: absolute; inset: 0; perspective: 1700px; perspective-origin: 30% 50%; }
+  .tilt { position: absolute; left: 38%; top: 9%; transform: rotateY(-24deg) rotateX(7deg) rotateZ(1.5deg); transform-origin: 0 50%; filter: blur(0.6px); }
   .veil {
     position: absolute; inset: 0;
     background:
@@ -75,7 +66,7 @@ const lines = codeLines(7, 34);
 
   @media (max-width: 860px) {
     .content { grid-template-columns: 1fr; gap: 40px; }
-    .editor { inset: -10% -40% -10% 0; }
+    .tilt { left: 8%; top: 4%; }
     .veil { background: linear-gradient(to top, #000 8%, rgb(0 0 0 / 0.86) 55%, rgb(0 0 0 / 0.55) 80%, #000 100%); }
   }
 </style>
