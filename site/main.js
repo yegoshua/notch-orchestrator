@@ -244,8 +244,8 @@ function makeIsland(root) {
       if (key !== shownCounters) {
         shownCounters = key;
         counters.innerHTML = shown.map(kind => kind === 'waiting'
-          ? `<span class="counter waiting" aria-label="${counts.waiting} waiting for you">${counts.waiting}</span>`
-          : `<span class="counter ${kind}" aria-label="${counts[kind]} ${kind}"><svg class="mark" data-mark="${kind}"></svg>${counts[kind]}</span>`).join('');
+          ? `<span class="counter waiting" role="img" aria-label="${counts.waiting} waiting for you">${counts.waiting}</span>`
+          : `<span class="counter ${kind}" role="img" aria-label="${counts[kind]} ${kind}"><svg class="mark" data-mark="${kind}"></svg>${counts[kind]}</span>`).join('');
         fillMarks(counters);
       }
 
@@ -301,19 +301,19 @@ const STEPS = [
     detail: 'A count beside a mark, not a dot per session. Nothing moves except the companion at its laptop.',
   },
   {
-    clock: '14:26', counters: { waiting: 1, working: 2 }, ring: 41, state: 'One needs you',
+    clock: '14:26', counters: { waiting: 1, working: 2 }, ring: 41, state: 'One needs you', color: COLOR.waiting,
     detail: 'A session wants to run a migration. The card opens under the notch: allow or deny it here.',
     panel: { key: 'card', node: template('tpl-card'), width: 520 },
   },
   {
-    clock: '14:41', counters: { failed: 1, working: 2 }, ring: 58, state: 'One failed',
+    clock: '14:41', counters: { failed: 1, working: 2 }, ring: 58, state: 'One failed', color: 'var(--failed-text)',
     detail: 'A line slides out for a few seconds and goes back. Noticeable, not alarming.',
-    panel: { key: 'failed', node: transientLine('failed', 'Flaky test hunt', 'failed', 'frontoffice'), width: 400, brief: true },
+    panel: { key: 'failed', node: transientLine('failed', 'Flaky test hunt', 'failed', 'frontoffice'), width: 405, brief: true },
   },
   {
-    clock: '15:20', counters: { finished: 3 }, ring: 76, state: 'The work is done',
-    detail: 'Finished turns stay in the count for a few minutes, then the island goes back to sleep.',
-    panel: { key: 'finished', node: transientLine('finished', 'Release notes', 'finished', 'frontoffice'), width: 400, brief: true },
+    clock: '15:20', counters: { finished: 3 }, ring: 76, state: 'The work is done', color: COLOR.finished,
+    detail: 'Finished turns stay in the count for ten minutes unless you choose otherwise, then the island goes back to sleep.',
+    panel: { key: 'finished', node: transientLine('finished', 'Release notes', 'finished', 'frontoffice'), width: 405, brief: true },
   },
 ];
 const HERO = { counters: { waiting: 1, working: 2 }, ring: 41 };
@@ -323,9 +323,9 @@ const LINE_SECONDS = 4.5;
 const CAPTIONS = {
   waiting: { counters: { waiting: 1, working: 2 }, text: 'A filled amber circle, the only state that asks something of you. The companion hops and waves.' },
   working: { counters: { working: 3 }, text: 'A hollow ring: the agent is running. The companion types.' },
-  finished: { counters: { finished: 2 }, text: 'A green check: the turn ended in the last few minutes.' },
+  finished: { counters: { finished: 2 }, text: 'A green check: the turn ended a short while ago. How long it stays is yours to set.' },
   failed: { counters: { failed: 1, working: 2 }, text: 'A red cross: the turn ended with an error. The companion slumps.' },
-  unknown: { counters: {}, text: 'A dashed ring: the hooks and the process disagree, so the app does not guess.' },
+  unknown: { counters: {}, text: 'A dashed ring: the state could not be confirmed, so the app does not guess.' },
 };
 
 function start() {
@@ -342,7 +342,8 @@ function start() {
 
   function render() {
     const current = step < 0 ? HERO : step >= STEPS.length ? AFTER : STEPS[step];
-    const counters = answered && current.panel?.key === 'card' ? { working: 3 } : current.counters;
+    const isAnswered = answered && current.panel?.key === 'card';
+    const counters = isAnswered ? { working: 3 } : current.counters;
     island.set(counters, current.ring);
 
     if (step >= 0 && step < STEPS.length) {
@@ -350,13 +351,14 @@ function start() {
       $('#scene-clock').textContent = current.clock;
       const state = $('#scene-state');
       state.textContent = current.state;
-      state.style.setProperty('--state', step === 2 ? COLOR.waiting : step === 3 ? 'var(--failed-text)' : step === 4 ? COLOR.finished : '');
-      $('#scene-detail').textContent = answered && current.panel?.key === 'card'
+      state.style.setProperty('--state', current.color ?? '');
+      $('#scene-detail').textContent = isAnswered
         ? (answered === 'allow' ? 'Allowed. The session carries on, and you never left your editor.' : 'Denied. The agent is told, and looks for another way.')
         : current.detail;
     }
 
     const panel = current.panel;
+    $('#hotkey').setAttribute('aria-expanded', listOpen);
     if (listOpen) island.show('list', template('tpl-list'), 540);
     else if (panel && !(panel.brief ? lineGone : answered)) island.show(panel.key, panel.node, panel.width);
     else island.hide();
@@ -372,7 +374,10 @@ function start() {
     if (STEPS[step]?.panel?.brief) {
       lineTimer = setTimeout(() => { lineGone = true; render(); }, LINE_SECONDS * 1000);
     }
-    steps.forEach((li, index) => li.classList.toggle('current', index === step));
+    steps.forEach((li, index) => {
+      li.classList.toggle('current', index === step);
+      $('button', li).setAttribute('aria-current', index === step ? 'step' : 'false');
+    });
     render();
   }
 
@@ -400,7 +405,7 @@ function start() {
 
   // The card answers, as it does in the app.
   function answer(act) {
-    if (step !== 2 || answered || listOpen) return false;
+    if (STEPS[step]?.panel?.key !== 'card' || answered || listOpen) return false;
     answered = act;
     render();
     return true;
@@ -473,7 +478,8 @@ function start() {
     })
     .catch(() => {});
 
-  reducedMotion.addEventListener('change', render);
+  // Without motion each companion rests on one frame of its mood.
+  reducedMotion.addEventListener('change', () => companions.forEach(companion => paint(companion, 0.4)));
   requestAnimationFrame(tick);
 }
 

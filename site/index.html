@@ -80,7 +80,7 @@
         <button type="button" data-ring="96">96%</button>
         <button type="button" data-ring="">No data</button>
       </div>
-      <p class="fine">The ring is your five-hour limit. It stays quiet until the limit comes close.</p>
+      <p class="fine">The ring is your five-hour limit, and stays quiet until the limit comes close. The weekly limit is in the list and in the menu.</p>
     </div>
   </div>
 </section>
@@ -131,11 +131,11 @@
   <div class="duo">
     <article>
       <h3>Hooks, then a second look</h3>
-      <p>On first launch the app adds its hooks to <code>~/.claude/settings.json</code> and keeps a backup of the file. What the hooks say is checked against the session's process and transcript, and what cannot be confirmed shows as unknown.</p>
+      <p>On first launch the app adds its hooks to <code>~/.claude/settings.json</code>, keeps a backup of the file, and wraps your status line so that usage limits reach it. What the hooks say is checked against the session's process and transcript, and what cannot be confirmed shows as unknown.</p>
     </article>
     <article>
       <h3>Nothing leaves your Mac</h3>
-      <p>No telemetry and no backend. The app holds no tokens: the only thing that goes out is what <code>gh</code> and <code>glab</code> ask your git host about a pipeline.</p>
+      <p>No telemetry and no backend. The app holds no tokens. All that goes out is its own check for a newer release, and what <code>gh</code> and <code>glab</code> ask your git host about a pipeline.</p>
     </article>
   </div>
 
@@ -165,7 +165,7 @@
   <ol class="install-steps">
     <li><span>1</span><p>The installer downloads the latest release, puts the app into Applications and starts it. macOS accepts an app that <code>curl</code> downloaded, and refuses the same one from a browser, which is why this is the way in.</p></li>
     <li><span>2</span><p>The app connects itself to Claude Code. Restart the sessions that were already running.</p></li>
-    <li><span>3</span><p>macOS asks to automate Terminal the first time you jump to a tab. "Start at Login" is in the menu bar menu.</p></li>
+    <li><span>3</span><p>macOS asks to automate Terminal when that is first needed: to jump to a session's tab and to tell whether the tab is in front. "Start at Login" is in the menu bar menu.</p></li>
   </ol>
 
   <p class="alt">With Homebrew: <code>brew install --cask yegoshua/tap/notch-orchestrator</code></p>
@@ -182,7 +182,7 @@
   <div class="card">
     <div class="card-head">
       <svg class="mark" data-mark="waiting"></svg>
-      <div class="card-title"><b>Migrate orders table</b><span>payments-api · Terminal · waiting 0:42</span></div>
+      <div class="card-title"><b>Migrate orders table</b><span>payments-api · Terminal (CLI) · 42s ago</span></div>
       <span class="chip">Bash</span>
     </div>
     <p class="ask">Run a shell command</p>
@@ -199,24 +199,24 @@
   <div class="list">
     <div class="group" data-state="waiting">
       <p class="group-label">Needs you <i>1</i></p>
-      <div class="row"><svg class="mark" data-mark="waiting"></svg><div class="row-main"><b>Migrate orders table</b><span>payments-api · Wants to run npm run migrate</span></div><div class="row-side"><em>Needs you</em><span>0:42</span></div></div>
+      <div class="row"><svg class="mark" data-mark="waiting"></svg><div class="row-main"><b>Migrate orders table <small>payments-api · CLI</small></b><span>Wants to run npm run migrate</span></div><div class="row-side"><em>Needs you</em><span>42s</span></div></div>
     </div>
     <div class="group" data-state="failed">
       <p class="group-label">Failed <i>1</i></p>
-      <div class="row"><svg class="mark" data-mark="failed"></svg><div class="row-main"><b>Flaky test hunt</b><span>frontoffice · The turn ended with an error</span></div><div class="row-side"><em class="failed">Failed</em><span>2m ago</span></div></div>
+      <div class="row"><svg class="mark" data-mark="failed"></svg><div class="row-main"><b>Flaky test hunt <small>frontoffice · CLI</small></b><span>The turn ended with an error</span></div><div class="row-side"><em class="failed">Failed</em><span>2m ago</span></div></div>
     </div>
     <div class="group" data-state="working">
       <p class="group-label">Working <i>2</i></p>
-      <div class="row"><svg class="mark" data-mark="working"></svg><div class="row-main"><b>Deposit widget polish</b><span>cashier-lite · Editing QuickDepositView.tsx · CI: test</span></div><div class="row-side"><span>6m</span></div></div>
-      <div class="row"><svg class="mark" data-mark="working"></svg><div class="row-main"><b>Docs sweep</b><span>notch-orchestrator · Reading README.md · 2 subagents ▸</span></div><div class="row-side"><span>14m</span></div></div>
+      <div class="row"><svg class="mark" data-mark="working"></svg><div class="row-main"><b>Deposit widget polish <small>cashier-lite · Desktop</small></b><span>Editing QuickDepositView.tsx · CI: test</span></div><div class="row-side"><span>6m</span></div></div>
+      <div class="row"><svg class="mark" data-mark="working"></svg><div class="row-main"><b>Docs sweep <small>notch-orchestrator · VS Code</small></b><span>Reading README.md · 2 subagents ▸</span></div><div class="row-side"><span>14m</span></div></div>
     </div>
     <div class="group" data-state="finished">
       <p class="group-label">Finished <i>1</i></p>
-      <div class="row"><svg class="mark" data-mark="finished"></svg><div class="row-main"><b>Release notes</b><span>frontoffice · Finished · CI passed</span></div><div class="row-side"><span>3m ago</span></div></div>
+      <div class="row"><svg class="mark" data-mark="finished"></svg><div class="row-main"><b>Release notes <small>frontoffice · CLI</small></b><span>Finished · CI passed</span></div><div class="row-side"><span>3m ago</span></div></div>
     </div>
     <div class="group" data-state="unknown">
       <p class="group-label">Unknown <i>1</i></p>
-      <div class="row"><svg class="mark" data-mark="unknown"></svg><div class="row-main"><b>Untitled session</b><span>sandbox · State could not be confirmed</span></div><div class="row-side"><span>1h ago</span></div></div>
+      <div class="row"><svg class="mark" data-mark="unknown"></svg><div class="row-main"><b>Untitled session <small>sandbox · CLI</small></b><span>State could not be confirmed</span></div><div class="row-side"><span>1h 00m ago</span></div></div>
     </div>
   </div>
 </template>
