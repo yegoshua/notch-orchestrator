@@ -18,6 +18,8 @@ export function startDust(canvas: HTMLCanvasElement) {
 
   const resize = () => {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
+    // The toolbars of a mobile browser resize the window all the time; the canvas rarely changes.
+    if (canvas.clientWidth === width && canvas.clientHeight === height) return;
     width = canvas.clientWidth;
     height = canvas.clientHeight;
     canvas.width = Math.round(width * ratio);

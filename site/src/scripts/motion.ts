@@ -1,6 +1,8 @@
 // Motion that follows the visitor: layers that move with the scroll and the pointer, and
 // sections that come in as they are reached. None of it runs when no motion was asked for.
 
+import { viewportHeight } from './viewport';
+
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 /**
@@ -11,10 +13,11 @@ function followScroll() {
   const scenes = [...document.querySelectorAll<HTMLElement>('[data-parallax]')];
   const update = () => {
     if (reducedMotion.matches) return;
+    const height = viewportHeight();
     for (const scene of scenes) {
       const rect = scene.getBoundingClientRect();
-      if (rect.bottom < -innerHeight || rect.top > innerHeight * 2) continue;
-      scene.style.setProperty('--scroll', ((rect.top + rect.height / 2 - innerHeight / 2) / innerHeight).toFixed(4));
+      if (rect.bottom < -height || rect.top > height * 2) continue;
+      scene.style.setProperty('--scroll', ((rect.top + rect.height / 2 - height / 2) / height).toFixed(4));
     }
   };
   addEventListener('scroll', update, { passive: true });
@@ -48,7 +51,7 @@ function reveal() {
   const update = () => {
     waiting = waiting.filter(element => {
       // Reached once its top is well inside the window; what was scrolled past counts too.
-      if (element.getBoundingClientRect().top > innerHeight * 0.9) return true;
+      if (element.getBoundingClientRect().top > viewportHeight() * 0.9) return true;
       element.classList.add('in');
       return false;
     });

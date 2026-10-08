@@ -5,7 +5,7 @@ import { COLOR } from '../lib/marks';
 import Mark from './Mark.astro';
 ---
 <section class="scene" id="scene" aria-label="The states of the island" style={`--stops: ${STEPS.length}`}>
-  <div class="pin">
+  <div class="pin" id="scene-pin">
     <div class="glow" aria-hidden="true"></div>
     <div class="copy">
       <h2>One afternoon,<br />five states.</h2>
@@ -30,7 +30,7 @@ import Mark from './Mark.astro';
 </section>
 
 <style>
-  .scene { height: calc(var(--stops) * 100vh); position: relative; transition: --glow-color 0.7s; }
+  .scene { height: calc(var(--stops) * 100svh); position: relative; transition: --glow-color 0.7s; }
   .glow {
     position: absolute; inset: 0 0 auto; height: 70%; pointer-events: none;
     background: radial-gradient(42% 52% at 50% 0, color-mix(in srgb, var(--glow-color) 30%, transparent), transparent 70%);
@@ -38,7 +38,7 @@ import Mark from './Mark.astro';
   .pin {
     position: sticky; top: 0; height: 100svh; min-height: 560px; overflow: hidden;
     display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto;
-    padding: 0 var(--gutter) clamp(24px, 4vh, 40px);
+    padding: 0 var(--gutter) clamp(24px, 4svh, 40px);
   }
   .copy { align-self: end; padding-bottom: 40px; }
   .lede { margin-top: 18px; }

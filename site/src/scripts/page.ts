@@ -5,6 +5,7 @@ import { Companion, MOOD_LABEL, moodOf } from './companion';
 import { startDust } from './dust';
 import { Island, type Panel } from './island';
 import { startMotion } from './motion';
+import { viewportHeight } from './viewport';
 
 const $ = <T extends HTMLElement>(selector: string, root: ParentNode = document) => root.querySelector<T>(selector)!;
 const $$ = <T extends HTMLElement>(selector: string, root: ParentNode = document) => [...root.querySelectorAll<T>(selector)];
@@ -36,7 +37,7 @@ function linePanel(line: TransientLine): Panel {
 /** The island at the top of the page, and the scene that walks it through its states. */
 function scene() {
   const island = new Island($('#island'));
-  const section = $('#scene'), stops = $$('#steps li');
+  const section = $('#scene'), pin = $('#scene-pin'), stops = $$('#steps li');
   const stage = new Companion($<HTMLCanvasElement>('#scene-companion'), STAGE_SIZE.wide);
   const hotkey = $('#hotkey');
 
@@ -92,11 +93,12 @@ function scene() {
   }
 
   function onScroll() {
+    // How far the pinned part has travelled through the section, in steps.
     const rect = section.getBoundingClientRect();
-    const progress = -rect.top / (rect.height - innerHeight) * STEPS.length;
+    const progress = -rect.top / (rect.height - pin.offsetHeight) * STEPS.length;
     stops.forEach((stop, index) => stop.style.setProperty('--p', String(Math.min(1, Math.max(0, progress - index)))));
     // The scene takes over once its pinned part has all but reached the top.
-    enter(rect.top > innerHeight * 0.25 ? -1 : Math.min(STEPS.length, Math.max(0, Math.floor(progress))));
+    enter(rect.top > viewportHeight() * 0.25 ? -1 : Math.min(STEPS.length, Math.max(0, Math.floor(progress))));
   }
 
   function layout() {
@@ -108,7 +110,7 @@ function scene() {
   layout();
 
   stops.forEach((stop, index) => $('button', stop).addEventListener('click', () => {
-    const travel = section.offsetHeight - innerHeight;
+    const travel = section.offsetHeight - pin.offsetHeight;
     scrollTo({ top: section.offsetTop + travel * (index + 0.5) / STEPS.length });
   }));
 
