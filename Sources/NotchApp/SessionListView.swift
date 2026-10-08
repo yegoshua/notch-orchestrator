@@ -227,6 +227,7 @@ private struct SessionRow: View {
                     if showsCI, let ci = session.ci {
                         if let request = ci.request { RequestMark(request: request, open: openPipeline) }
                         PipelineMark(ci: ci, open: openPipeline)
+                        ApprovalsMark(approvals: ci.approvals, isReady: ci.isReadyToMerge)
                     }
                 }
                 .frame(height: 16)
@@ -407,6 +408,27 @@ private extension SessionCI {
     }
 }
 
+/// How a merge request stands with its reviewers: ready to merge, else how many approved of how
+/// many the project asks for. Nothing where nobody approved and nobody has to.
+private struct ApprovalsMark: View {
+    let approvals: Approvals?
+    let isReady: Bool
+
+    private var text: String? {
+        if isReady { return "Ready to merge" }
+        guard let approvals, approvals.given > 0 || approvals.required > 0 else { return nil }
+        if approvals.required > 0 { return "\(approvals.given)/\(approvals.required) approvals" }
+        return approvals.given == 1 ? "1 approval" : "\(approvals.given) approvals"
+    }
+
+    var body: some View {
+        if let text {
+            Text(text).font(Island.small).foregroundStyle(isReady ? Island.finished : Island.text3)
+                .fixedSize()
+        }
+    }
+}
+
 /// The CI of what the session pushed, as a tag in the row: its mark and a few words, on its
 /// colour. A click on it opens the pipeline, on the job that failed when there is one; the rest
 /// of the row keeps the jump to the session.
@@ -452,6 +474,7 @@ private struct PipelineRow: View {
             if let branch = ci.request?.branch {
                 Text(branch).font(Island.smallCode).foregroundStyle(Island.text3)
             }
+            ApprovalsMark(approvals: ci.approvals, isReady: ci.isReadyToMerge)
             Spacer(minLength: 8)
             if isHovered, ci.link != nil {
                 Text("Open pipeline").font(Island.small).foregroundStyle(Island.text3).fixedSize()
@@ -506,6 +529,7 @@ private struct MergeRequestRow: View {
                 PipelineMark(ci: SessionCI(state: ci, url: request.pipelineURL ?? request.url), open: open)
                     .fixedSize()
             }
+            ApprovalsMark(approvals: request.approvals, isReady: request.isReadyToMerge)
             Spacer(minLength: 8)
             if isHovered {
                 Text(url == nil ? "No link" : "Open in browser").font(Island.small).foregroundStyle(Island.text3)

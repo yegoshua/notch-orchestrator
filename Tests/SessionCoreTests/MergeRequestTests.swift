@@ -33,9 +33,24 @@ private func push(
         observedAt: time + 20)
 }
 
-private func open(_ pipeline: PipelineLookup = .noPipeline, title: String = "Add the funnel events") -> MergeRequestLookup {
-    .found(MergeRequestStatus(state: .open, title: title, url: requestURL, branch: "feature", pipeline: pipeline))
+private func open(
+    _ pipeline: PipelineLookup = .noPipeline, title: String = "Add the funnel events", approved given: Int? = nil,
+    of required: Int = 2, mergeable: Bool? = nil
+) -> MergeRequestLookup {
+    .found(MergeRequestStatus(
+        state: .open, title: title, url: requestURL, branch: "feature", pipeline: pipeline,
+        approvals: given.map { Approvals(given: $0, required: required) }, isMergeable: mergeable))
 }
+
+private func lines(_ core: inout SessionCore) -> [TransientLine] {
+    core.drainInterruptions().compactMap { interruption in
+        if case .line(let line, _) = interruption { return line }
+        return nil
+    }
+}
+
+private let readyLine = TransientLine(
+    sessionID: nil, title: "!12 Add the funnel events", project: "frontoffice", kind: .readyToMerge)
 
 private func observe(_ core: inout SessionCore, _ lookup: MergeRequestLookup, at time: Date = t + 30) {
     core.reconcile(MergeRequestObservation(id: id, lookup: lookup), observedAt: time)
@@ -289,5 +304,177 @@ private func followed() -> SessionCore {
         core.restore([FollowedMergeRequest(remote: remote, number: 12, url: requestURL, title: "An older title")])
 
         #expect(core.snapshot(at: later).mergeRequests.first?.title == "Add the funnel events")
+    }
+}
+
+@Suite struct ApprovalsOfAMergeRequest {
+    @Test func theRowCountsApprovalsGivenAndRequired() {
+        var core = followed()
+
+        observe(&core, open(approved: 1, mergeable: false))
+
+        #expect(core.snapshot(at: later).mergeRequests.first?.approvals == Approvals(given: 1, required: 2))
+    }
+
+    @Test func theCountGoesDownWhenAnApprovalIsWithdrawn() {
+        var core = followed()
+        observe(&core, open(approved: 2, mergeable: false))
+
+        observe(&core, open(approved: 1, mergeable: false), at: t + 300)
+
+        #expect(core.snapshot(at: later).mergeRequests.first?.approvals == Approvals(given: 1, required: 2))
+    }
+
+    @Test func approvalsTheHostWouldNotTellStayAsLastKnown() {
+        var core = followed()
+        observe(&core, open(approved: 1, mergeable: false))
+
+        observe(&core, open(mergeable: false), at: t + 300)
+
+        #expect(core.snapshot(at: later).mergeRequests.first?.approvals == Approvals(given: 1, required: 2))
+    }
+
+    @Test func theSessionsRowShowsThemWhileTheSessionIsInTheList() {
+        var core = followed()
+
+        observe(&core, open(approved: 2, mergeable: true))
+
+        let ci = core.snapshot(at: t + 60).sessions.first?.ci
+        #expect(ci?.approvals == Approvals(given: 2, required: 2))
+        #expect(ci?.isReadyToMerge == true)
+    }
+}
+
+@Suite struct ReadyToMerge {
+    @Test func aMergeableRequestSomebodyApprovedIsAnnouncedOnce() {
+        var core = followed()
+        _ = core.drainInterruptions()
+
+        observe(&core, open(approved: 2, mergeable: true))
+        #expect(lines(&core) == [readyLine])
+        #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == true)
+
+        observe(&core, open(approved: 2, mergeable: true), at: t + 300)
+        #expect(lines(&core).isEmpty)
+    }
+
+    @Test func withoutAnApprovalAMergeableRequestIsNotReady() {
+        var core = followed()
+        _ = core.drainInterruptions()
+
+        // A project that asks for no approvals: mergeable as soon as its CI passed.
+        observe(&core, open(approved: 0, of: 0, mergeable: true))
+
+        #expect(lines(&core).isEmpty)
+        #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
+    }
+
+    @Test func onceSomebodyApprovedItIs() {
+        var core = followed()
+        observe(&core, open(approved: 0, of: 0, mergeable: true))
+        _ = core.drainInterruptions()
+
+        observe(&core, open(approved: 1, of: 0, mergeable: true), at: t + 300)
+
+        #expect(lines(&core) == [readyLine])
+    }
+
+    @Test func approvedButNotMergeableIsNotReady() {
+        var core = followed()
+        _ = core.drainInterruptions()
+
+        // Its CI fails, a thread is open, it has conflicts: the host says no.
+        observe(&core, open(approved: 2, mergeable: false))
+
+        #expect(lines(&core).isEmpty)
+        #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
+    }
+
+    @Test func aRequestThatStoppedBeingReadyAndIsReadyAgainIsAnnouncedAgain() {
+        var core = followed()
+        observe(&core, open(approved: 2, mergeable: true))
+        _ = core.drainInterruptions()
+
+        observe(&core, open(approved: 2, mergeable: false), at: t + 300)
+        #expect(lines(&core).isEmpty)
+        #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
+
+        observe(&core, open(approved: 2, mergeable: true), at: t + 600)
+        #expect(lines(&core) == [readyLine])
+    }
+
+    @Test func aMergeabilityThatCannotBeReadIsNeverReady() {
+        var core = followed()
+        _ = core.drainInterruptions()
+
+        observe(&core, open(approved: 2, mergeable: nil))
+
+        #expect(lines(&core).isEmpty)
+        #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
+    }
+
+    @Test func oneAnswerThatCannotBeReadDoesNotMakeItNewsAgain() {
+        var core = followed()
+        observe(&core, open(approved: 2, mergeable: true))
+        _ = core.drainInterruptions()
+
+        observe(&core, .unknown, at: t + 300)
+        observe(&core, open(approved: 2, mergeable: nil), at: t + 600)
+        observe(&core, open(approved: 2, mergeable: true), at: t + 900)
+
+        #expect(lines(&core).isEmpty)
+    }
+
+    @Test func afterARestartItIsNotAnnouncedAgain() throws {
+        var before = followed()
+        observe(&before, open(approved: 2, mergeable: true))
+        let stored = try JSONEncoder().encode(before.followedMergeRequests)
+
+        var after = SessionCore()
+        after.restore(try JSONDecoder().decode([FollowedMergeRequest].self, from: stored))
+        observe(&after, open(approved: 2, mergeable: true), at: later)
+
+        #expect(lines(&after).isEmpty)
+        #expect(after.snapshot(at: later).mergeRequests.first?.isReadyToMerge == true)
+    }
+
+    @Test func aFileFromBeforeReadinessWasFollowedIsStillRead() throws {
+        let stored = Data("""
+        [{"remote":{"host":"gitlab.com","path":"group/frontoffice"},"number":12,"url":"\(requestURL)"}]
+        """.utf8)
+
+        let read = try JSONDecoder().decode([FollowedMergeRequest].self, from: stored)
+
+        #expect(read.map(\.number) == [12])
+        #expect(read.first?.wasAnnouncedReady == false)
+    }
+
+    @Test func theLineIsSilentInSmartModeAndSoundsInLoud() {
+        for (mode, sound) in [(InterruptionMode.smart, false), (.loud, true)] {
+            var core = SessionCore(settings: Settings(interruptionMode: mode))
+            push(&core)
+            _ = core.drainInterruptions()
+
+            observe(&core, open(approved: 2, mergeable: true))
+
+            #expect(core.drainInterruptions() == [.line(readyLine, sound: sound)])
+        }
+    }
+
+    @Test func inQuietModeAndUnderFocusThereIsNoLineAndNoneLater() {
+        var quiet = SessionCore(settings: Settings(interruptionMode: .quiet))
+        push(&quiet)
+        var focused = SessionCore(settings: Settings(interruptionMode: .loud))
+        push(&focused)
+        focused.attend(Attention(focusIsOn: true), at: t + 25)
+        for var core in [quiet, focused] {
+            _ = core.drainInterruptions()
+
+            observe(&core, open(approved: 2, mergeable: true))
+            observe(&core, open(approved: 2, mergeable: true), at: t + 300)
+
+            #expect(lines(&core).isEmpty)
+            #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == true)
+        }
     }
 }

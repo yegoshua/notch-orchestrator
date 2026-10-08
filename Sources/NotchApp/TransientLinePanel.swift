@@ -106,7 +106,8 @@ final class TransientLineController {
 }
 
 /// "frontoffice finished", "frontoffice CI failed": the session by the name the list gives it,
-/// and how its turn or its pipeline ended.
+/// and how its turn or its pipeline ended. Or a merge request, by its number and title, and what
+/// it waits for.
 private struct TransientLineView: View {
     let line: TransientLine
 
@@ -118,6 +119,7 @@ private struct TransientLineView: View {
         case .failed: "failed"
         case .ciPassed: "CI passed"
         case .ciFailed: "CI failed"
+        case .readyToMerge: "ready to merge"
         }
     }
 

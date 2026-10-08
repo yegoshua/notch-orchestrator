@@ -413,6 +413,8 @@ final class AppModel: ObservableObject {
         var stored = mergeRequest
         stored.ci = nil
         stored.pipelineURL = nil
+        stored.approvals = nil
+        stored.isReadyToMerge = false
         return stored
     }
 

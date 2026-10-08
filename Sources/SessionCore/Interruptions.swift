@@ -38,7 +38,8 @@ public struct Attention: Equatable, Sendable {
     }
 }
 
-/// The one line that tells of a turn that ended, or of a pipeline that did.
+/// The one line that tells of a turn that ended, of a pipeline that did, or of a merge request
+/// that waits for the user.
 public struct TransientLine: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         case finished
@@ -47,14 +48,17 @@ public struct TransientLine: Equatable, Sendable {
         case ciPassed
         /// It failed.
         case ciFailed
+        /// A followed merge request can be merged, and somebody approved it.
+        case readyToMerge
     }
 
-    public var sessionID: String
+    /// Nil for a line about a merge request, which no session may be left to show.
+    public var sessionID: String?
     public var title: String?
     public var project: String?
     public var kind: Kind
 
-    public init(sessionID: String, title: String?, project: String?, kind: Kind) {
+    public init(sessionID: String?, title: String?, project: String?, kind: Kind) {
         self.sessionID = sessionID
         self.title = title
         self.project = project

@@ -348,7 +348,9 @@ private func checkRuns(_ runs: [(name: String, status: String, conclusion: Strin
 private let followedRequest = FollowedMergeRequest.ID(remote: GitRemote(host: "gitlab.com", path: "group/apps/frontoffice"), number: 12)
 
 /// A merge request as GitLab answers for one, cut down to what is read and a little around it.
-private func gitLabMergeRequest(_ state: String = "opened", headPipeline: String? = "running") -> String {
+private func gitLabMergeRequest(
+    _ state: String = "opened", headPipeline: String? = "running", mergeStatus: String = "not_approved"
+) -> String {
     let pipeline = headPipeline.map {
         """
         {"id":2923343714,"iid":831,"project_id":80556934,"sha":"8fe791d2","ref":"refs/merge-requests/12/head",\
@@ -358,22 +360,102 @@ private func gitLabMergeRequest(_ state: String = "opened", headPipeline: String
     } ?? "null"
     return """
     {"id":4301,"iid":12,"project_id":80556934,"title":"Add the funnel events","state":"\(state)",\
-    "target_branch":"main","source_branch":"feature","draft":false,"detailed_merge_status":"not_approved",\
+    "target_branch":"main","source_branch":"feature","draft":false,"detailed_merge_status":"\(mergeStatus)",\
     "sha":"8fe791d2","merge_commit_sha":null,"squash_commit_sha":null,\
     "web_url":"https://gitlab.com/group/apps/frontoffice/-/merge_requests/12","head_pipeline":\(pipeline)}
     """
 }
 
+/// The approvals of a merge request as GitLab answers for them, cut down.
+private func gitLabApprovals(by names: [String], required: Int) -> String {
+    let approvers = names.map { "{\"user\":{\"id\":1,\"username\":\"\($0)\",\"name\":\"\($0)\"}}" }.joined(separator: ",")
+    return """
+    {"id":4301,"iid":12,"state":"opened","approved":\(names.count >= required),"approvals_required":\(required),\
+    "approvals_left":\(max(0, required - names.count)),"approved_by":[\(approvers)]}
+    """
+}
+
+@Suite struct GitLabApprovals {
+    private func status(_ answers: KeyValuePairs<String, CLIAnswer>) -> MergeRequestStatus? {
+        guard case .found(let status) = GitHost.mergeRequest(followedRequest, run: Recorded(answers).run) else { return nil }
+        return status
+    }
+
+    @Test func approvalsGivenAndRequiredAreRead() {
+        let read = status([
+            "/approvals": ok(gitLabApprovals(by: ["olha"], required: 2)),
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil)),
+        ])
+
+        #expect(read?.approvals == Approvals(given: 1, required: 2))
+        #expect(read?.isMergeable == false)
+    }
+
+    @Test func aProjectThatAsksForNoneRequiresNone() {
+        let read = status([
+            "/approvals": ok("{\"approved\":true,\"approved_by\":[]}"),
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil, mergeStatus: "mergeable")),
+        ])
+
+        #expect(read?.approvals == Approvals(given: 0, required: 0))
+        #expect(read?.isMergeable == true)
+    }
+
+    @Test func onlyTheHostsOwnVerdictMakesItMergeable() {
+        let read = status([
+            "/approvals": ok(gitLabApprovals(by: ["olha", "taras"], required: 2)),
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil, mergeStatus: "mergeable")),
+        ])
+
+        #expect(read?.isMergeable == true)
+    }
+
+    @Test(arguments: [
+        "not_approved", "ci_must_pass", "ci_still_running", "discussions_not_resolved", "conflict", "draft_status",
+        "need_rebase", "checking", "unchecked", "requested_changes", "something_new",
+    ])
+    func whateverElseTheHostSaysIsNotMergeable(mergeStatus: String) {
+        let read = status([
+            "/approvals": ok(gitLabApprovals(by: ["olha", "taras"], required: 2)),
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil, mergeStatus: mergeStatus)),
+        ])
+
+        #expect(read?.isMergeable == false)
+    }
+
+    @Test func aMergeRequestThatDoesNotSayIsNeitherMergeableNorNot() {
+        let read = status([
+            "/approvals": ok(gitLabApprovals(by: ["olha"], required: 1)),
+            "merge_requests/12": ok("{\"state\":\"opened\",\"web_url\":\"https://gitlab.com/group/apps/frontoffice/-/merge_requests/12\"}"),
+        ])
+
+        #expect(read?.isMergeable == nil)
+    }
+
+    @Test(arguments: [refused("", "glab: 403 Forbidden (HTTP 403)"), ok("[]"), ok("{\"approvals_required\":2}")])
+    func approvalsThatCannotBeReadAreNotKnown(answer: CLIAnswer) {
+        let read = status([
+            "/approvals": answer,
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil, mergeStatus: "mergeable")),
+        ])
+
+        #expect(read?.approvals == nil)
+        #expect(read?.isMergeable == true)
+    }
+}
+
 @Suite struct GitLabMergeRequests {
     @Test func anOpenMergeRequestIsReadWithThePipelineOfItsHead() {
         let cli = Recorded([
+            "/approvals": ok(gitLabApprovals(by: [], required: 2)),
             "merge_requests/12": ok(gitLabMergeRequest()),
             "/jobs": ok(gitLabJobs([("deploy", "deploy", "created", false), ("unit", "test", "running", false)])),
         ])
 
         #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .found(MergeRequestStatus(
             state: .open, title: "Add the funnel events", url: "https://gitlab.com/group/apps/frontoffice/-/merge_requests/12",
-            branch: "feature", pipeline: .found(Pipeline(state: .running(stage: "test"), url: gitLabPipelineURL)))))
+            branch: "feature", pipeline: .found(Pipeline(state: .running(stage: "test"), url: gitLabPipelineURL)),
+            approvals: Approvals(given: 0, required: 2), isMergeable: false)))
     }
 
     @Test func itIsAskedForByItsNumberInTheProjectOnItsHost() {
@@ -381,7 +463,7 @@ private func gitLabMergeRequest(_ state: String = "opened", headPipeline: String
 
         _ = GitHost.mergeRequest(followedRequest, run: cli.run)
 
-        #expect(cli.calls == [["glab", "api", "--hostname", "gitlab.com", "projects/group%2Fapps%2Ffrontoffice/merge_requests/12"]])
+        #expect(cli.calls.first == ["glab", "api", "--hostname", "gitlab.com", "projects/group%2Fapps%2Ffrontoffice/merge_requests/12"])
     }
 
     @Test func thePipelineOfTheHeadIsTheOneTheMergeRequestNames() {
@@ -396,6 +478,7 @@ private func gitLabMergeRequest(_ state: String = "opened", headPipeline: String
         #expect(cli.calls.map(\.last) == [
             "projects/group%2Fapps%2Ffrontoffice/merge_requests/12",
             "projects/group%2Fapps%2Ffrontoffice/pipelines/2923343714/jobs?per_page=100",
+            "projects/group%2Fapps%2Ffrontoffice/merge_requests/12/approvals",
         ])
     }
 

@@ -233,11 +233,20 @@ public struct SessionCI: Equatable, Sendable {
     /// The pipeline, or the job that failed when that is known.
     public var url: String?
     public var request: RequestLink?
+    /// The approvals of that request, where it is followed and the host told them.
+    public var approvals: Approvals?
+    /// Whether that request can be merged and somebody approved it.
+    public var isReadyToMerge: Bool
 
-    public init(state: CIState, url: String? = nil, request: RequestLink? = nil) {
+    public init(
+        state: CIState, url: String? = nil, request: RequestLink? = nil, approvals: Approvals? = nil,
+        isReadyToMerge: Bool = false
+    ) {
         self.state = state
         self.url = url
         self.request = request
+        self.approvals = approvals
+        self.isReadyToMerge = isReadyToMerge
     }
 }
 
@@ -258,6 +267,18 @@ public struct FollowedPush: Equatable, Sendable {
         self.push = push
         self.request = request
         self.lacksAccess = lacksAccess
+    }
+}
+
+/// How many approved a merge request, and how many its project asks for.
+public struct Approvals: Equatable, Sendable {
+    public var given: Int
+    /// Zero where the project asks for none.
+    public var required: Int
+
+    public init(given: Int, required: Int) {
+        self.given = given
+        self.required = required
     }
 }
 
@@ -285,6 +306,12 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
     public var ci: CIState?
     /// That pipeline, or the job that failed when that is known.
     public var pipelineURL: String?
+    public var approvals: Approvals?
+    /// The host considers it mergeable and somebody approved it.
+    public var isReadyToMerge = false
+    /// The user was told that it is ready, and it has been ready since. Kept, so that a restart
+    /// does not tell them again.
+    public var wasAnnouncedReady = false
 
     public var id: ID { ID(remote: remote, number: number) }
     /// The repository by its name alone.
@@ -304,7 +331,18 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case remote, number, url, title, branch
+        case remote, number, url, title, branch, wasAnnouncedReady
+    }
+
+    public init(from decoder: Decoder) throws {
+        let stored = try decoder.container(keyedBy: CodingKeys.self)
+        remote = try stored.decode(GitRemote.self, forKey: .remote)
+        number = try stored.decode(Int.self, forKey: .number)
+        url = try stored.decode(String.self, forKey: .url)
+        title = try stored.decodeIfPresent(String.self, forKey: .title)
+        branch = try stored.decodeIfPresent(String.self, forKey: .branch)
+        // A file written before readiness was followed has none.
+        wasAnnouncedReady = try stored.decodeIfPresent(Bool.self, forKey: .wasAnnouncedReady) ?? false
     }
 }
 
@@ -322,13 +360,23 @@ public struct MergeRequestStatus: Equatable, Sendable {
     public var branch: String?
     /// The pipeline of its head commit.
     public var pipeline: PipelineLookup
+    /// Nil when the host would not say.
+    public var approvals: Approvals?
+    /// Whether the host considers it mergeable by the project's own rules: approvals, CI,
+    /// threads, conflicts. Nil when it did not say.
+    public var isMergeable: Bool?
 
-    public init(state: State, title: String? = nil, url: String, branch: String? = nil, pipeline: PipelineLookup = .noPipeline) {
+    public init(
+        state: State, title: String? = nil, url: String, branch: String? = nil, pipeline: PipelineLookup = .noPipeline,
+        approvals: Approvals? = nil, isMergeable: Bool? = nil
+    ) {
         self.state = state
         self.title = title
         self.url = url
         self.branch = branch
         self.pipeline = pipeline
+        self.approvals = approvals
+        self.isMergeable = isMergeable
     }
 }
 

@@ -143,8 +143,15 @@ public enum GitHost {
         }
         var status = MergeRequestStatus(
             state: state, title: found["title"] as? String, url: url, branch: found["source_branch"] as? String)
-        if state == .open, let head = found["head_pipeline"] as? [String: Any] {
+        guard state == .open else { return .found(status) }
+        if let head = found["head_pipeline"] as? [String: Any] {
             status.pipeline = gitLabPipeline(head, on: remote, run: run)
+        }
+        // The project's rules are the host's to apply: only its verdict is read.
+        status.isMergeable = (found["detailed_merge_status"] as? String).map { $0 == "mergeable" }
+        if let approvals = ask(remote, "projects/\(escaped(remote.path))/merge_requests/\(id.number)/approvals", run)?.json as? [String: Any],
+           let given = approvals["approved_by"] as? [Any] {
+            status.approvals = Approvals(given: given.count, required: approvals["approvals_required"] as? Int ?? 0)
         }
         return .found(status)
     }

@@ -792,6 +792,8 @@ public struct SessionCore {
         for var request in stored where mergeRequests[request.id] == nil {
             request.ci = nil
             request.pipelineURL = nil
+            request.approvals = nil
+            request.isReadyToMerge = false
             mergeRequests[request.id] = TrackedMergeRequest(shown: request)
         }
     }
@@ -818,6 +820,17 @@ public struct SessionCore {
                 return
             }
             tracked.shown.title = status.title ?? tracked.shown.title
+            tracked.shown.approvals = status.approvals ?? tracked.shown.approvals
+            let isReady = status.isMergeable == true && (tracked.shown.approvals?.given ?? 0) > 0
+            if isReady, !tracked.shown.wasAnnouncedReady {
+                tracked.shown.wasAnnouncedReady = true
+                announce(.readyToMerge, of: tracked.shown)
+            } else if status.isMergeable == false || status.approvals?.given == 0 {
+                // Seen not to be ready: the next time it is, that is news again.
+                tracked.shown.wasAnnouncedReady = false
+            }
+            // What the host did not say this time stays as it was last known.
+            if status.isMergeable != nil { tracked.shown.isReadyToMerge = isReady }
             tracked.shown.url = status.url
             tracked.shown.branch = status.branch ?? tracked.shown.branch
             tracked.shown.pipelineURL = nil
@@ -844,6 +857,17 @@ public struct SessionCore {
             tracked.shown.pipelineURL = nil
         }
         mergeRequests[observation.id] = tracked
+    }
+
+    /// The line about a followed merge request that now waits for the user. It is news whatever
+    /// window is in front: none shows it.
+    private mutating func announce(_ kind: TransientLine.Kind, of request: FollowedMergeRequest) {
+        let mode = mode
+        guard mode != .quiet else { return }
+        let line = TransientLine(
+            sessionID: nil, title: "!\(request.number) \(request.title ?? request.branch ?? "")".trimmingCharacters(in: .whitespaces),
+            project: request.project, kind: kind)
+        interruptions.append(.line(line, sound: mode == .loud))
     }
 
     /// The user does not want to hear of this merge request any more. A session that pushes to
@@ -969,7 +993,15 @@ public struct SessionCore {
                     title: Self.title(record), activity: record.activity,
                     subagents: record.subagents, location: record.location,
                     context: record.context == ContextUsage() ? nil : record.context,
-                    ci: record.ci.map { SessionCI(state: $0.state, url: $0.url, request: Self.request(of: record)) })
+                    ci: record.ci.map { ci in
+                        let request = Self.request(of: record)
+                        let followed = request.flatMap { request in
+                            ci.push.flatMap { mergeRequests[FollowedMergeRequest.ID(remote: $0.remote, number: request.number)] }
+                        }?.shown
+                        return SessionCI(
+                            state: ci.state, url: ci.url, request: request, approvals: followed?.approvals,
+                            isReadyToMerge: followed?.isReadyToMerge ?? false)
+                    })
             }
             .sorted { ($0.state.rank, $0.since, $0.id) < ($1.state.rank, $1.since, $1.id) }
         // A merge request is in a session's row while that session is in the list.
