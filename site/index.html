@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notch Orchestrator — Claude Code sessions in the MacBook notch</title>
+<meta name="description" content="A small macOS app that lives in the MacBook notch and keeps an eye on your Claude Code sessions, in the terminal and in the desktop app alike.">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="Notch Orchestrator">
+<meta property="og:description" content="See which Claude Code session needs you, and answer it from the notch.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7'/%3E%3Crect x='7' y='22' width='5' height='4' rx='1.5' fill='%23C9643F'/%3E%3Crect x='20' y='22' width='5' height='4' rx='1.5' fill='%23C9643F'/%3E%3Crect x='4' y='7' width='24' height='17' rx='5.5' fill='%23E07A52'/%3E%3Crect x='9' y='11' width='3' height='7' rx='1.5' fill='%231B1410'/%3E%3Crect x='20' y='11' width='3' height='7' rx='1.5' fill='%231B1410'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- The island at the top of the page: a replica of the app's, at its real size. -->
+<div class="island island-top" id="island" role="group" aria-label="Demo of the island"></div>
+
+<main>
+
+<section class="hero" id="top">
+  <div class="cone" aria-hidden="true"></div>
+  <div class="hero-copy">
+    <p class="product">Notch Orchestrator</p>
+    <h1>See which session<br>needs you.</h1>
+    <p class="lede">A small macOS app that lives in the MacBook notch and keeps an eye on your Claude Code sessions, in the terminal and in the desktop app alike.</p>
+  </div>
+  <div class="hero-cta">
+    <a class="button" href="#install">Install for Mac</a>
+    <p class="fine">macOS 14 or later · free and open source</p>
+  </div>
+</section>
+
+<section class="scene" id="scene" aria-label="The five states of the island">
+  <div class="scene-pin">
+    <div class="scene-copy">
+      <h2>One afternoon,<br>five states.</h2>
+      <p class="lede">The island at the top of this page is a replica of the app's, at its real size. Scroll, and it goes from sleep to work that is done.</p>
+      <p class="clock" id="scene-clock">14:02</p>
+      <p class="scene-state" id="scene-state"></p>
+      <p class="scene-detail" id="scene-detail"></p>
+    </div>
+    <div class="scene-stage" aria-hidden="true">
+      <canvas class="companion" id="scene-companion"></canvas>
+    </div>
+    <ol class="steps" id="steps">
+      <li><button type="button"><span class="bar"><i></i></span><span class="step-label"><svg class="mark" data-mark="unknown"></svg>Asleep</span></button></li>
+      <li><button type="button"><span class="bar"><i></i></span><span class="step-label"><svg class="mark" data-mark="working"></svg>Working</span></button></li>
+      <li><button type="button"><span class="bar"><i></i></span><span class="step-label"><svg class="mark" data-mark="waiting"></svg>Needs you</span></button></li>
+      <li><button type="button"><span class="bar"><i></i></span><span class="step-label"><svg class="mark" data-mark="failed"></svg>Failed</span></button></li>
+      <li><button type="button"><span class="bar"><i></i></span><span class="step-label"><svg class="mark" data-mark="finished"></svg>Finished</span></button></li>
+    </ol>
+  </div>
+</section>
+
+<section class="block" id="read">
+  <header class="block-head">
+    <h2>How to read the island.</h2>
+    <p class="lede">Every state has its own colour and its own shape, so it never rests on colour alone. Counters are numbers beside a mark, not one dot per session.</p>
+  </header>
+  <div class="read">
+    <div class="screen">
+      <div class="island island-static" id="preview" role="group" aria-label="The open island with a list of sessions"></div>
+      <p class="screen-caption" id="read-caption" aria-live="polite"></p>
+    </div>
+    <div class="controls">
+      <h3 id="state-label">State</h3>
+      <div class="options" id="state-options" role="group" aria-labelledby="state-label">
+        <button type="button" data-state="waiting"><svg class="mark" data-mark="waiting"></svg><b>Needs you</b><span>a permission or a question</span></button>
+        <button type="button" data-state="working"><svg class="mark" data-mark="working"></svg><b>Working</b><span>the agent is running</span></button>
+        <button type="button" data-state="finished"><svg class="mark" data-mark="finished"></svg><b>Finished</b><span>the turn just ended</span></button>
+        <button type="button" data-state="failed"><svg class="mark" data-mark="failed"></svg><b>Failed</b><span>the turn ended with an error</span></button>
+        <button type="button" data-state="unknown"><svg class="mark" data-mark="unknown"></svg><b>Unknown</b><span>could not be confirmed</span></button>
+      </div>
+      <h3 id="ring-label">Usage ring</h3>
+      <div class="segmented" id="ring-options" role="group" aria-labelledby="ring-label">
+        <button type="button" data-ring="23">23%</button>
+        <button type="button" data-ring="78">78%</button>
+        <button type="button" data-ring="96">96%</button>
+        <button type="button" data-ring="">No data</button>
+      </div>
+      <p class="fine">The ring is your five-hour limit. It stays quiet until the limit comes close.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="more">
+  <div class="trio">
+    <article>
+      <h3>Answer from the notch</h3>
+      <p>Allow or deny a tool call, or pick an answer to the agent's question, without switching windows. A request you ignore goes back to Claude Code's own dialog after five minutes.</p>
+    </article>
+    <article>
+      <h3>Jump to the session</h3>
+      <p>One click takes you to the exact Terminal tab, the session in the Claude desktop app, or the VS Code window.</p>
+    </article>
+    <article>
+      <h3>CI of what a session pushed</h3>
+      <p>Once a session pushes, its row shows the pipeline's state and stage, on GitHub and GitLab, through your own <code>gh</code> and <code>glab</code> sign-in.</p>
+    </article>
+  </div>
+</section>
+
+<section class="block keys" id="keys">
+  <div class="keys-copy">
+    <h2>Without the mouse.</h2>
+    <p class="lede">A hotkey opens the list of sessions from any app. <kbd>⌃⌥Y</kbd> allows the request on the card, <kbd>⌃⌥X</kbd> denies it.</p>
+    <div class="keys-row">
+      <button type="button" class="keycaps" id="hotkey" aria-label="Open the session list (Control Option N)">
+        <kbd data-key="Control">⌃</kbd><kbd data-key="Alt">⌥</kbd><kbd data-key="KeyN">N</kbd>
+      </button>
+      <p class="fine">Opens the list. Press it right now, or tap the keys.</p>
+    </div>
+  </div>
+  <div class="modes">
+    <h3>It interrupts as much as you let it</h3>
+    <dl>
+      <div><dt>Loud</dt><dd>Expands and sounds for every request and every finished turn.</dd></div>
+      <div><dt>Smart</dt><dd>Only for a session that is not already in front of you.</dd></div>
+      <div><dt>Quiet</dt><dd>Counters only.</dd></div>
+    </dl>
+    <p class="fine">A Focus silences every mode.</p>
+  </div>
+</section>
+
+<section class="block" id="how">
+  <header class="block-head">
+    <h2>How it knows.</h2>
+  </header>
+  <div class="duo">
+    <article>
+      <h3>Hooks, then a second look</h3>
+      <p>On first launch the app adds its hooks to <code>~/.claude/settings.json</code> and keeps a backup of the file. What the hooks say is checked against the session's process and transcript, and what cannot be confirmed shows as unknown.</p>
+    </article>
+    <article>
+      <h3>Nothing leaves your Mac</h3>
+      <p>No telemetry and no backend. The app holds no tokens: the only thing that goes out is what <code>gh</code> and <code>glab</code> ask your git host about a pipeline.</p>
+    </article>
+  </div>
+
+  <div class="limits">
+    <h3>What it does not do</h3>
+    <ul>
+      <li>Sessions started before the app was installed do not report to it until they are restarted.</li>
+      <li>The app is not notarized by Apple. A centrally managed Mac may refuse it.</li>
+      <li>Without Full Disk Access it cannot see a Focus, so it does not respect one.</li>
+      <li>Usage of desktop-only sessions comes without reset times.</li>
+      <li>A git host the CLI is not signed in to shows as "no access".</li>
+    </ul>
+  </div>
+</section>
+
+<section class="block install" id="install">
+  <header class="block-head">
+    <h2>Try it on your Mac.</h2>
+    <p class="lede">Paste this into a terminal.</p>
+  </header>
+  <div class="command">
+    <code id="install-command">curl -fsSL https://github.com/yegoshua/notch-orchestrator/releases/latest/download/install.sh | sh</code>
+    <button type="button" class="button" id="copy" data-copy="install-command">Copy</button>
+  </div>
+  <p class="fine" id="release">macOS 14 or later · MIT</p>
+
+  <ol class="install-steps">
+    <li><span>1</span><p>The installer downloads the latest release, puts the app into Applications and starts it. macOS accepts an app that <code>curl</code> downloaded, and refuses the same one from a browser, which is why this is the way in.</p></li>
+    <li><span>2</span><p>The app connects itself to Claude Code. Restart the sessions that were already running.</p></li>
+    <li><span>3</span><p>macOS asks to automate Terminal the first time you jump to a tab. "Start at Login" is in the menu bar menu.</p></li>
+  </ol>
+
+  <p class="alt">With Homebrew: <code>brew install --cask yegoshua/tap/notch-orchestrator</code></p>
+</section>
+
+</main>
+
+<footer>
+  <p>Notch Orchestrator is free and open source, under the MIT licence. <a href="https://github.com/yegoshua/notch-orchestrator">Source on GitHub</a> · <a href="https://github.com/yegoshua/notch-orchestrator/releases">Releases</a> · <a href="https://github.com/yegoshua/notch-orchestrator/issues">Issues</a></p>
+  <p>Not affiliated with Anthropic. Self-update is <a href="https://sparkle-project.org">Sparkle</a>; the idea of an island growing out of the notch owes much to NotchDrop, DynamicNotchKit and Vibe Notch.</p>
+</footer>
+
+<template id="tpl-card">
+  <div class="card">
+    <div class="card-head">
+      <svg class="mark" data-mark="waiting"></svg>
+      <div class="card-title"><b>Migrate orders table</b><span>payments-api · Terminal · waiting 0:42</span></div>
+      <span class="chip">Bash</span>
+    </div>
+    <p class="ask">Run a shell command</p>
+    <pre class="well"><i>$</i> npm run migrate -- --env staging</pre>
+    <div class="card-actions">
+      <button type="button" class="ibtn" data-act="deny">Deny with explanation</button>
+      <button type="button" class="ibtn" data-act="deny">Deny <kbd>⌃⌥X</kbd></button>
+      <button type="button" class="ibtn primary" data-act="allow">Allow <kbd>⌃⌥Y</kbd></button>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-list">
+  <div class="list">
+    <div class="group" data-state="waiting">
+      <p class="group-label">Needs you <i>1</i></p>
+      <div class="row"><svg class="mark" data-mark="waiting"></svg><div class="row-main"><b>Migrate orders table</b><span>payments-api · Wants to run npm run migrate</span></div><div class="row-side"><em>Needs you</em><span>0:42</span></div></div>
+    </div>
+    <div class="group" data-state="failed">
+      <p class="group-label">Failed <i>1</i></p>
+      <div class="row"><svg class="mark" data-mark="failed"></svg><div class="row-main"><b>Flaky test hunt</b><span>frontoffice · The turn ended with an error</span></div><div class="row-side"><em class="failed">Failed</em><span>2m ago</span></div></div>
+    </div>
+    <div class="group" data-state="working">
+      <p class="group-label">Working <i>2</i></p>
+      <div class="row"><svg class="mark" data-mark="working"></svg><div class="row-main"><b>Deposit widget polish</b><span>cashier-lite · Editing QuickDepositView.tsx · CI: test</span></div><div class="row-side"><span>6m</span></div></div>
+      <div class="row"><svg class="mark" data-mark="working"></svg><div class="row-main"><b>Docs sweep</b><span>notch-orchestrator · Reading README.md · 2 subagents ▸</span></div><div class="row-side"><span>14m</span></div></div>
+    </div>
+    <div class="group" data-state="finished">
+      <p class="group-label">Finished <i>1</i></p>
+      <div class="row"><svg class="mark" data-mark="finished"></svg><div class="row-main"><b>Release notes</b><span>frontoffice · Finished · CI passed</span></div><div class="row-side"><span>3m ago</span></div></div>
+    </div>
+    <div class="group" data-state="unknown">
+      <p class="group-label">Unknown <i>1</i></p>
+      <div class="row"><svg class="mark" data-mark="unknown"></svg><div class="row-main"><b>Untitled session</b><span>sandbox · State could not be confirmed</span></div><div class="row-side"><span>1h ago</span></div></div>
+    </div>
+  </div>
+</template>
+
+<script src="main.js" defer></script>
+</body>
+</html>
