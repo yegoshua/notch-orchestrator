@@ -192,11 +192,10 @@ private func followed() -> SessionCore {
 }
 
 @Suite struct TheEndOfAMergeRequest {
-    @Test(arguments: [MergeRequestStatus.State.merged, .closed])
-    func oneThatWasMergedOrClosedLeaves(state: MergeRequestStatus.State) {
+    @Test func oneThatWasClosedLeavesAtOnce() {
         var core = followed()
 
-        observe(&core, .found(MergeRequestStatus(state: state, url: requestURL)))
+        observe(&core, .found(MergeRequestStatus(state: .closed, url: requestURL)))
 
         #expect(core.followedMergeRequests.isEmpty)
     }

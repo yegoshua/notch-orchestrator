@@ -50,6 +50,11 @@ public struct TransientLine: Equatable, Sendable {
         case ciFailed
         /// A followed merge request can be merged, and somebody approved it.
         case readyToMerge
+        /// What the merge of a followed request set off failed: the deployment to an
+        /// environment, or with nil the pipeline.
+        case failedAfterMerge(environment: String?)
+        /// The pipeline after a merge waits at a step somebody has to start by hand.
+        case heldAtManualStep
     }
 
     /// Nil for a line about a merge request, which no session may be left to show.

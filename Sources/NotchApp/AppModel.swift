@@ -51,7 +51,7 @@ final class AppModel: ObservableObject {
         if let stored = try? Data(contentsOf: config.mergeRequestsFile),
            let followed = try? JSONDecoder().decode([FollowedMergeRequest].self, from: stored) {
             core.restore(followed)
-            storedMergeRequests = core.followedMergeRequests.map(Self.stored)
+            storedMergeRequests = core.followedMergeRequests.map(\.stored)
             snapshot = core.snapshot(at: Date())
         }
         refreshLimits()
@@ -438,19 +438,9 @@ final class AppModel: ObservableObject {
         refreshSnapshot()
     }
 
-    /// A merge request as the file holds it: without how it stands.
-    private static func stored(_ mergeRequest: FollowedMergeRequest) -> FollowedMergeRequest {
-        var stored = mergeRequest
-        stored.ci = nil
-        stored.pipelineURL = nil
-        stored.approvals = nil
-        stored.isReadyToMerge = false
-        return stored
-    }
-
     /// Writes the followed merge requests out when they are not what the file holds.
     private func storeMergeRequests() {
-        let followed = core.followedMergeRequests.map(Self.stored)
+        let followed = core.followedMergeRequests.map(\.stored)
         guard followed != storedMergeRequests, let data = try? JSONEncoder().encode(followed) else { return }
         storedMergeRequests = followed
         try? FileManager.default.createDirectory(at: config.supportDirectory, withIntermediateDirectories: true)

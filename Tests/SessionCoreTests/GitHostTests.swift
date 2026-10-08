@@ -128,7 +128,7 @@ private func checkRuns(_ runs: [(name: String, status: String, conclusion: Strin
             failedJobURL: "https://gitlab.com/group/apps/frontoffice/-/jobs/899")))
     }
 
-    @Test func aPipelineHeldAtAManualStepAfterEverythingElseSucceededPassed() {
+    @Test func aPipelineHeldAtAManualStepAfterEverythingElseSucceededIsHeld() {
         // As recorded: the production deploy waits for a click, the rollbacks are optional.
         let cli = Recorded([
             "/jobs": ok(gitLabJobs([
@@ -139,7 +139,7 @@ private func checkRuns(_ runs: [(name: String, status: String, conclusion: Strin
             "/pipelines?": ok(gitLabPipelines("manual")),
         ])
 
-        #expect(GitHost.pipeline(of: gitLabPush, run: cli.run) == .found(Pipeline(state: .passed, url: gitLabPipelineURL)))
+        #expect(GitHost.pipeline(of: gitLabPush, run: cli.run) == .found(Pipeline(state: .held, url: gitLabPipelineURL)))
     }
 
     @Test func aPipelineHeldAtAManualStepBeforeAnythingRanIsUnknown() {
@@ -349,8 +349,10 @@ private let followedRequest = FollowedMergeRequest.ID(remote: GitRemote(host: "g
 
 /// A merge request as GitLab answers for one, cut down to what is read and a little around it.
 private func gitLabMergeRequest(
-    _ state: String = "opened", headPipeline: String? = "running", mergeStatus: String = "not_approved"
+    _ state: String = "opened", headPipeline: String? = "running", mergeStatus: String = "not_approved",
+    mergeCommit: String? = nil, squashCommit: String? = nil, mergedAt: String? = nil
 ) -> String {
+    func quoted(_ text: String?) -> String { text.map { "\"\($0)\"" } ?? "null" }
     let pipeline = headPipeline.map {
         """
         {"id":2923343714,"iid":831,"project_id":80556934,"sha":"8fe791d2","ref":"refs/merge-requests/12/head",\
@@ -361,7 +363,8 @@ private func gitLabMergeRequest(
     return """
     {"id":4301,"iid":12,"project_id":80556934,"title":"Add the funnel events","state":"\(state)",\
     "target_branch":"main","source_branch":"feature","draft":false,"detailed_merge_status":"\(mergeStatus)",\
-    "sha":"8fe791d2","merge_commit_sha":null,"squash_commit_sha":null,\
+    "sha":"8fe791d2","merge_commit_sha":\(quoted(mergeCommit)),"squash_commit_sha":\(quoted(squashCommit)),\
+    "merged_at":\(quoted(mergedAt)),\
     "web_url":"https://gitlab.com/group/apps/frontoffice/-/merge_requests/12","head_pipeline":\(pipeline)}
     """
 }
@@ -512,12 +515,11 @@ private func gitLabApprovals(by names: [String], required: Int) -> String {
         #expect(status.state == .open)
     }
 
-    @Test(arguments: [("merged", MergeRequestStatus.State.merged), ("closed", .closed)])
-    func oneThatEndedIsReadWithoutItsPipeline(state: String, expected: MergeRequestStatus.State) {
-        let cli = Recorded(["merge_requests/12": ok(gitLabMergeRequest(state, headPipeline: "success"))])
+    @Test func oneThatWasClosedIsReadWithoutItsPipeline() {
+        let cli = Recorded(["merge_requests/12": ok(gitLabMergeRequest("closed", headPipeline: "success"))])
 
         #expect(GitHost.mergeRequest(followedRequest, run: cli.run) == .found(MergeRequestStatus(
-            state: expected, title: "Add the funnel events",
+            state: .closed, title: "Add the funnel events",
             url: "https://gitlab.com/group/apps/frontoffice/-/merge_requests/12", branch: "feature")))
         #expect(cli.calls.count == 1)
     }
@@ -569,5 +571,202 @@ private func gitLabApprovals(by names: [String], required: Int) -> String {
         cli.isInstalled = false
 
         #expect(GitHost.access(to: "gitlab.com", run: cli.run) == .noTool)
+    }
+}
+
+/// Deployments as GitLab lists them, cut down, newest first.
+private func gitLabDeployments(_ deployments: [(environment: String, status: String, sha: String)]) -> String {
+    let objects = deployments.enumerated().map { index, deployment in
+        """
+        {"id":\(1611001312 - index),"iid":\(2933 - index),"ref":"main","sha":"\(deployment.sha)",\
+        "created_at":"2026-10-08T16:40:36.862Z","updated_at":"2026-10-08T16:40:36.921Z","status":"\(deployment.status)",\
+        "environment":{"id":41207528,"name":"\(deployment.environment)"},\
+        "deployable":{"id":17037725374,"name":"deploy","status":"running","pipeline":{"id":2923343714}}}
+        """
+    }
+    return "[" + objects.joined(separator: ",") + "]"
+}
+
+@Suite struct GitLabMergedRequests {
+    private let mergedAt = "2026-10-08T16:30:00.000Z"
+
+    private func status(_ cli: Recorded) -> MergeRequestStatus? {
+        guard case .found(let status) = GitHost.mergeRequest(followedRequest, run: cli.run) else { return nil }
+        return status
+    }
+
+    @Test func itIsReadWithThePipelineOfItsMergeCommitOnTheTargetBranch() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/jobs": ok(gitLabJobs([("deploy", "deploy", "created", false), ("unit", "test", "running", false)])),
+            "/pipelines?": ok(gitLabPipelines("running")),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli) == MergeRequestStatus(
+            state: .merged, title: "Add the funnel events", url: "https://gitlab.com/group/apps/frontoffice/-/merge_requests/12",
+            branch: "feature", pipeline: .found(Pipeline(state: .running(stage: "test"), url: gitLabPipelineURL)),
+            mergedAt: Date(timeIntervalSince1970: 1_791_477_000), deployments: []))
+        #expect(cli.calls.map(\.last).contains("projects/group%2Fapps%2Ffrontoffice/pipelines?sha=5ad0e1f3&per_page=20"))
+    }
+
+    @Test func aSquashWithoutAMergeCommitIsFollowedForTheSquashCommit() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", squashCommit: "77c1b2a9", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli)?.pipeline == .noPipeline)
+        #expect(cli.calls.map(\.last).contains("projects/group%2Fapps%2Ffrontoffice/pipelines?sha=77c1b2a9&per_page=20"))
+    }
+
+    @Test func aSquashUnderAMergeCommitIsFollowedForTheMergeCommit() {
+        // The squash commit is on the target branch too, but its tip, which the pipeline runs for, is the merge.
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", squashCommit: "77c1b2a9", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok("[]"),
+        ])
+
+        _ = status(cli)
+
+        #expect(cli.calls.map(\.last).contains("projects/group%2Fapps%2Ffrontoffice/pipelines?sha=5ad0e1f3&per_page=20"))
+    }
+
+    @Test func oneThatWasFastForwardedIsFollowedForItsHead() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok("[]"),
+        ])
+
+        _ = status(cli)
+
+        #expect(cli.calls.map(\.last).contains("projects/group%2Fapps%2Ffrontoffice/pipelines?sha=8fe791d2&per_page=20"))
+    }
+
+    @Test func thePipelineOfTheTargetBranchIsPreferredToOthersOfTheCommit() {
+        let pipelines = """
+        [{"id":1,"sha":"5ad0e1f3","ref":"v1.2.0","status":"failed","web_url":"https://gitlab.com/x/-/pipelines/1"},\
+        {"id":2,"sha":"5ad0e1f3","ref":"main","status":"success","web_url":"https://gitlab.com/x/-/pipelines/2"}]
+        """
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok(pipelines),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli)?.pipeline == .found(Pipeline(state: .passed, url: "https://gitlab.com/x/-/pipelines/2")))
+    }
+
+    @Test func aPipelineOfAnotherBranchIsNotThatOfTheMerge() {
+        // Fast-forwarded: the commit is the head of the request, with the pipeline it had there.
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergedAt: mergedAt)),
+            "/pipelines?": ok(gitLabPipelines("success", ref: "feature")),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli)?.pipeline == .noPipeline)
+    }
+
+    @Test func aPipelineHeldAtAManualStepIsHeld() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/jobs": ok(gitLabJobs([("deploy-prod", "deploy-prod", "manual", false), ("deploy-stage", "deploy-stage", "success", false)])),
+            "/pipelines?": ok(gitLabPipelines("manual")),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli)?.pipeline == .found(Pipeline(state: .held, url: gitLabPipelineURL)))
+    }
+
+    @Test func deploymentsOfTheCommitAreReadByEnvironment() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok(gitLabPipelines("running")),
+            "/jobs": ok("[]"),
+            // Newest first, among them those of other commits.
+            "/deployments": ok(gitLabDeployments([
+                ("production", "running", "5ad0e1f3"), ("review/other", "success", "0000aaaa"),
+                ("staging", "success", "5ad0e1f3"), ("staging", "success", "1111bbbb"),
+            ])),
+        ])
+
+        #expect(status(cli)?.deployments == [
+            Deployment(environment: "staging", state: .succeeded), Deployment(environment: "production", state: .running),
+        ])
+    }
+
+    @Test func theyAreAskedForFromTheMergeOn() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok("[]"),
+        ])
+
+        _ = status(cli)
+
+        #expect(cli.calls.map(\.last).contains(
+            "projects/group%2Fapps%2Ffrontoffice/deployments?updated_after=2026-10-08T16%3A30%3A00.000Z&order_by=updated_at&sort=desc&per_page=100"))
+    }
+
+    @Test(arguments: [
+        ("created", Deployment.State.waiting), ("blocked", .waiting), ("running", .running), ("success", .succeeded),
+        ("failed", .failed), ("canceled", .unknown), ("skipped", .unknown), ("something_new", .unknown),
+    ])
+    func aDeploymentIsInTheStateTheHostGivesIt(status given: String, expected: Deployment.State) {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok(gitLabDeployments([("production", given, "5ad0e1f3")])),
+        ])
+
+        #expect(status(cli)?.deployments == [Deployment(environment: "production", state: expected)])
+    }
+
+    @Test func anEnvironmentDeployedToAgainStandsAsItsLatestDeployment() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok(gitLabDeployments([("production", "success", "5ad0e1f3"), ("production", "failed", "5ad0e1f3")])),
+        ])
+
+        #expect(status(cli)?.deployments == [Deployment(environment: "production", state: .succeeded)])
+    }
+
+    @Test func aProjectWithoutDeploymentsHasNone() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok(gitLabPipelines("success")),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli)?.deployments == [])
+        #expect(status(cli)?.pipeline == .found(Pipeline(state: .passed, url: gitLabPipelineURL)))
+    }
+
+    @Test(arguments: [ok("{\"message\":\"403 Forbidden\"}"), refused("", "glab: 403 Forbidden (HTTP 403)")])
+    func deploymentsTheHostWouldNotTellAreNotKnown(answer: CLIAnswer) {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok(gitLabPipelines("success")),
+            "/deployments": answer,
+        ])
+
+        #expect(status(cli)?.deployments == nil)
+        #expect(status(cli)?.pipeline == .found(Pipeline(state: .passed, url: gitLabPipelineURL)))
+    }
+
+    @Test func aMergedRequestIsNotAskedForItsApprovals() {
+        let cli = Recorded([
+            "merge_requests/12": ok(gitLabMergeRequest("merged", mergeCommit: "5ad0e1f3", mergedAt: mergedAt)),
+            "/pipelines?": ok("[]"),
+            "/deployments": ok("[]"),
+        ])
+
+        #expect(status(cli)?.approvals == nil)
+        #expect(!cli.calls.contains { $0.last?.hasSuffix("/approvals") == true })
     }
 }

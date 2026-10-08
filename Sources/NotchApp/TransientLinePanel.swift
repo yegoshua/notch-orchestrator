@@ -111,7 +111,12 @@ final class TransientLineController {
 private struct TransientLineView: View {
     let line: TransientLine
 
-    private var isFailure: Bool { line.kind == .failed || line.kind == .ciFailed }
+    private var isFailure: Bool {
+        switch line.kind {
+        case .failed, .ciFailed, .failedAfterMerge: true
+        case .finished, .ciPassed, .readyToMerge, .heldAtManualStep: false
+        }
+    }
 
     private var ending: String {
         switch line.kind {
@@ -120,13 +125,23 @@ private struct TransientLineView: View {
         case .ciPassed: "CI passed"
         case .ciFailed: "CI failed"
         case .readyToMerge: "ready to merge"
+        case .failedAfterMerge(let environment):
+            environment.map { "deploy to \($0) failed" } ?? "failed after the merge"
+        case .heldAtManualStep: "waits to be started"
         }
     }
 
     var body: some View {
         HStack(spacing: 8) {
             Group {
-                if isFailure { StateMark(state: .failed) } else { DrawnCheck() }
+                if isFailure {
+                    StateMark(state: .failed)
+                } else if line.kind == .heldAtManualStep {
+                    // Nothing ended: somebody is waited for.
+                    StateMark(state: .waitingForPermission)
+                } else {
+                    DrawnCheck()
+                }
             }
             .frame(width: 14)
             Text(line.title ?? line.project ?? "Untitled session")

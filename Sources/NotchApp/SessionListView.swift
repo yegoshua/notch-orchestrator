@@ -375,6 +375,7 @@ private extension SessionCI {
         case .running(let stage): stage.map { "CI running: \($0)" } ?? "CI running"
         case .passed: "CI passed"
         case .failed: "CI failed"
+        case .held: "CI waits to be started"
         case .unknown: "CI unknown"
         case .noAccess(let host): "CI: no access to \(host)"
         }
@@ -385,6 +386,7 @@ private extension SessionCI {
         case .running: Island.working
         case .passed: Island.finished
         case .failed: Island.failedText
+        case .held: Island.text2
         case .pending, .unknown, .noAccess: Island.text3
         }
     }
@@ -395,14 +397,14 @@ private extension SessionCI {
         case .running: .working
         case .passed: .finishedTurn
         case .failed: .failed
-        case .pending, .unknown, .noAccess: .unknown
+        case .pending, .held, .unknown, .noAccess: .unknown
         }
     }
 
     /// Whether there is a pipeline to speak of, not only a reason why none can be shown.
     var isKnown: Bool {
         switch state {
-        case .running, .passed, .failed: true
+        case .running, .passed, .failed, .held: true
         case .pending, .unknown, .noAccess: false
         }
     }
@@ -429,6 +431,51 @@ private struct ApprovalsMark: View {
         if let text {
             Text(text).font(Island.small).foregroundStyle(isReady ? Island.finished : Island.text3)
                 .fixedSize()
+        }
+    }
+}
+
+/// Where the commit of a merge goes, as the host recorded it: "staging deployed · production
+/// deploying". A click opens the pipeline that does it.
+private struct DeploymentsMark: View {
+    let deployments: [Deployment]
+    let pipeline: URL?
+    let open: (URL) -> Void
+
+    private static func words(_ state: Deployment.State) -> String {
+        switch state {
+        case .waiting: "waits"
+        case .running: "deploying"
+        case .succeeded: "deployed"
+        case .failed: "deploy failed"
+        case .unknown: "deploy unknown"
+        }
+    }
+
+    private static func color(_ state: Deployment.State) -> Color {
+        switch state {
+        case .running: Island.working
+        case .succeeded: Island.finished
+        case .failed: Island.failedText
+        case .waiting, .unknown: Island.text3
+        }
+    }
+
+    var body: some View {
+        let mark = HStack(spacing: 4) {
+            ForEach(Array(deployments.enumerated()), id: \.offset) { index, deployment in
+                if index > 0 { Text("·").font(Island.small).foregroundStyle(Island.text4) }
+                Text("\(deployment.environment) \(Self.words(deployment.state))")
+                    .font(Island.small).foregroundStyle(Self.color(deployment.state))
+            }
+        }
+        if let pipeline {
+            mark.contentShape(Rectangle())
+                .onTapGesture { open(pipeline) }
+                .accessibilityAddTraits(.isLink)
+                .accessibilityHint("Opens the pipeline in the browser")
+        } else {
+            mark
         }
     }
 }
@@ -507,8 +554,9 @@ private struct PipelineRow: View {
     }
 }
 
-/// A merge request whose session has left the list: what it is and how its CI stands. A click
-/// opens it in the browser, a click on the CI its pipeline.
+/// A merge request whose session has left the list, or that was merged: what it is, how its CI
+/// stands and, after the merge, where its commit is deployed to. A click opens it in the browser,
+/// a click on the CI or the deployments its pipeline.
 private struct MergeRequestRow: View {
     let request: FollowedMergeRequest
     let isHovered: Bool
@@ -516,10 +564,13 @@ private struct MergeRequestRow: View {
     let remove: () -> Void
 
     /// What a host handed out is opened only when it is a web address.
-    private var url: URL? {
-        guard let url = URL(string: request.url), url.scheme == "https" || url.scheme == "http" else { return nil }
+    private static func webAddress(_ text: String?) -> URL? {
+        guard let url = text.flatMap(URL.init(string:)), url.scheme == "https" || url.scheme == "http" else { return nil }
         return url
     }
+
+    private var url: URL? { Self.webAddress(request.url) }
+    private var pipeline: URL? { Self.webAddress(request.pipelineURL) }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -529,9 +580,13 @@ private struct MergeRequestRow: View {
                 .layoutPriority(1)
             Text(request.title ?? request.branch ?? "Merge request").font(Island.detail).foregroundStyle(Island.text)
             Text(request.project).font(Island.small).foregroundStyle(Island.text3)
+            if request.isMerged { Text("merged").font(Island.small).foregroundStyle(Island.text3).fixedSize() }
             if let ci = request.ci {
                 PipelineMark(ci: SessionCI(state: ci, url: request.pipelineURL ?? request.url), open: open)
                     .fixedSize()
+            }
+            if !request.deployments.isEmpty {
+                DeploymentsMark(deployments: request.deployments, pipeline: pipeline, open: open)
             }
             ApprovalsMark(approvals: request.approvals, isReady: request.isReadyToMerge)
             Spacer(minLength: 8)

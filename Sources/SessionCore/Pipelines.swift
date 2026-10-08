@@ -147,6 +147,8 @@ public struct Pipeline: Equatable, Sendable {
         case running(stage: String?)
         case passed
         case failed
+        /// Everything before a step somebody has to start by hand succeeded, and it waits there.
+        case held
         /// It is there, but how it went cannot be told: cancelled, skipped, or in a state the app does not know.
         case unknown
     }
@@ -214,16 +216,48 @@ public enum CIState: Equatable, Sendable {
     case running(stage: String?)
     case passed
     case failed
+    /// Waiting at a step somebody has to start by hand.
+    case held
     /// Could not be confirmed. Never shown as passed.
     case unknown
     case noAccess(host: String)
 
-    /// Whether the pipeline has yet to end, which keeps its session in the list.
+    /// Whether the pipeline has yet to end, which keeps its session in the list. One that is
+    /// held may wait for ever, so a session is not kept for it.
     public var isFollowed: Bool {
         switch self {
         case .pending, .running: true
-        case .passed, .failed, .unknown, .noAccess: false
+        case .passed, .failed, .held, .unknown, .noAccess: false
         }
+    }
+}
+
+/// A commit going to a named environment, as the git host records it.
+public struct Deployment: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        /// Recorded, and not begun: an earlier step runs still, or somebody has to start it.
+        case waiting
+        case running
+        case succeeded
+        case failed
+        /// Cancelled, skipped, or in a state the app does not know.
+        case unknown
+
+        /// Whether nothing more is to come of it by itself.
+        public var hasEnded: Bool {
+            switch self {
+            case .waiting, .running: false
+            case .succeeded, .failed, .unknown: true
+            }
+        }
+    }
+
+    public var environment: String
+    public var state: State
+
+    public init(environment: String, state: State) {
+        self.environment = environment
+        self.state = state
     }
 }
 
@@ -283,7 +317,8 @@ public struct Approvals: Equatable, Sendable {
 }
 
 /// A pull or merge request the core goes on following after the session that pushed to it has
-/// left the list. What is stored of it is what tells it apart; how it stands is asked afresh.
+/// left the list, and after it was merged for what the merge set off. What is stored of it is
+/// what tells it apart and what the user was told; how it stands is asked afresh.
 public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
     public struct ID: Hashable, Sendable {
         public var remote: GitRemote
@@ -302,7 +337,8 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
     public var title: String?
     /// The branch it asks to merge.
     public var branch: String?
-    /// The pipeline of its head commit. Nil when it has none, or none is known yet.
+    /// The pipeline of its head commit, or after the merge of the commit it was merged as. Nil
+    /// when it has none, or none is known yet.
     public var ci: CIState?
     /// That pipeline, or the job that failed when that is known.
     public var pipelineURL: String?
@@ -312,6 +348,30 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
     /// The user was told that it is ready, and it has been ready since. Kept, so that a restart
     /// does not tell them again.
     public var wasAnnouncedReady = false
+    /// Nil while it is open.
+    public var mergedAt: Date?
+    /// Where the commit it was merged as goes, by environment, as the host recorded it.
+    public var deployments: [Deployment] = []
+    /// The user was told that the pipeline after the merge failed, and it has not been seen
+    /// otherwise since.
+    public var wasAnnouncedFailed = false
+    /// The same for a pipeline held at a manual step.
+    public var wasAnnouncedHeld = false
+    /// The environments the user was told a deployment failed to, and that still stand so.
+    public var deploymentsAnnouncedFailed: [String] = []
+
+    public var isMerged: Bool { mergedAt != nil }
+
+    /// It as it is kept across a restart: without how it stands.
+    public var stored: FollowedMergeRequest {
+        var stored = self
+        stored.ci = nil
+        stored.pipelineURL = nil
+        stored.approvals = nil
+        stored.isReadyToMerge = false
+        stored.deployments = []
+        return stored
+    }
 
     public var id: ID { ID(remote: remote, number: number) }
     /// The repository by its name alone.
@@ -332,6 +392,7 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case remote, number, url, title, branch, wasAnnouncedReady
+        case mergedAt, wasAnnouncedFailed, wasAnnouncedHeld, deploymentsAnnouncedFailed
     }
 
     public init(from decoder: Decoder) throws {
@@ -341,8 +402,12 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
         url = try stored.decode(String.self, forKey: .url)
         title = try stored.decodeIfPresent(String.self, forKey: .title)
         branch = try stored.decodeIfPresent(String.self, forKey: .branch)
-        // A file written before readiness was followed has none.
+        // A file written before readiness, or what comes after the merge, was followed has none.
         wasAnnouncedReady = try stored.decodeIfPresent(Bool.self, forKey: .wasAnnouncedReady) ?? false
+        mergedAt = try stored.decodeIfPresent(Date.self, forKey: .mergedAt)
+        wasAnnouncedFailed = try stored.decodeIfPresent(Bool.self, forKey: .wasAnnouncedFailed) ?? false
+        wasAnnouncedHeld = try stored.decodeIfPresent(Bool.self, forKey: .wasAnnouncedHeld) ?? false
+        deploymentsAnnouncedFailed = try stored.decodeIfPresent([String].self, forKey: .deploymentsAnnouncedFailed) ?? []
     }
 }
 
@@ -358,17 +423,22 @@ public struct MergeRequestStatus: Equatable, Sendable {
     public var title: String?
     public var url: String
     public var branch: String?
-    /// The pipeline of its head commit.
+    /// The pipeline of its head commit while it is open, of the commit it was merged as after that.
     public var pipeline: PipelineLookup
     /// Nil when the host would not say.
     public var approvals: Approvals?
     /// Whether the host considers it mergeable by the project's own rules: approvals, CI,
     /// threads, conflicts. Nil when it did not say.
     public var isMergeable: Bool?
+    /// When it was merged, where the host says.
+    public var mergedAt: Date?
+    /// What the host recorded of the commit it was merged as going to environments, one for
+    /// each environment. Empty where it recorded none, nil when it would not say.
+    public var deployments: [Deployment]?
 
     public init(
         state: State, title: String? = nil, url: String, branch: String? = nil, pipeline: PipelineLookup = .noPipeline,
-        approvals: Approvals? = nil, isMergeable: Bool? = nil
+        approvals: Approvals? = nil, isMergeable: Bool? = nil, mergedAt: Date? = nil, deployments: [Deployment]? = nil
     ) {
         self.state = state
         self.title = title
@@ -377,6 +447,8 @@ public struct MergeRequestStatus: Equatable, Sendable {
         self.pipeline = pipeline
         self.approvals = approvals
         self.isMergeable = isMergeable
+        self.mergedAt = mergedAt
+        self.deployments = deployments
     }
 }
 

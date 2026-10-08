@@ -430,6 +430,41 @@ private func followed(_ mode: InterruptionMode = .smart) -> SessionCore {
     }
 }
 
+@Suite struct AHeldPipeline {
+    private let held = PipelineLookup.found(Pipeline(state: .held, url: pipelineURL))
+
+    @Test func theRowShowsThatItWaitsToBeStarted() {
+        var core = followed()
+
+        observe(&core, held, at: t + 40)
+
+        #expect(ci(core, at: t + 41) == SessionCI(state: .held, url: pipelineURL))
+    }
+
+    @Test func itKeepsItsSessionNoLongerThanOneThatPassed() {
+        var core = followed()
+        core.handle(event("Stop"), at: t + 30)
+
+        observe(&core, held, at: t + 40)
+
+        #expect(core.followedPushes.isEmpty)
+        #expect(ci(core, at: t + 40 + 599) != nil)
+        #expect(ci(core, at: t + 40 + 600) == nil)
+    }
+
+    @Test func itIsAnnouncedAsPassedAsBefore() {
+        // All that runs by itself succeeded.
+        var core = followed()
+        _ = core.drainInterruptions()
+
+        observe(&core, held, at: t + 40)
+
+        #expect(core.drainInterruptions() == [
+            .line(TransientLine(sessionID: "s", title: nil, project: "frontoffice", kind: .ciPassed), sound: false),
+        ])
+    }
+}
+
 @Suite struct PipelineLines {
     private func line(_ kind: TransientLine.Kind) -> TransientLine {
         TransientLine(sessionID: "s", title: nil, project: "frontoffice", kind: kind)
