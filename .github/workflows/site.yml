@@ -25,6 +25,8 @@ jobs:
       - uses: withastro/action@v3
         with:
           path: site
+          # Astro needs a newer Node than the action picks by itself.
+          node-version: 22
 
   deploy:
     needs: build
