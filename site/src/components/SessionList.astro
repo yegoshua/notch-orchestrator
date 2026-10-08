@@ -1,6 +1,7 @@
 ---
-// The list of sessions the island opens on, as SessionListView.swift draws it.
-import { SESSIONS } from '../lib/demo';
+// The list of sessions the island opens on, as SessionListView.swift draws it, with the merge
+// requests they pushed to in a section under them.
+import { MERGE_REQUESTS, SESSIONS } from '../lib/demo';
 import Mark from './Mark.astro';
 ---
 <div class="list">
@@ -16,4 +17,15 @@ import Mark from './Mark.astro';
       ))}
     </div>
   ))}
+  <div class="group" data-state="requests">
+    <p class="group-label">Merge requests <i>{MERGE_REQUESTS.length}</i></p>
+    {MERGE_REQUESTS.map(request => (
+      <div class="request">
+        <code>!{request.number}</code>
+        <b>{request.title}</b>
+        <small>{request.project}</small>
+        {request.parts.map(part => <span data-kind={part.kind}>{part.text}</span>)}
+      </div>
+    ))}
+  </div>
 </div>

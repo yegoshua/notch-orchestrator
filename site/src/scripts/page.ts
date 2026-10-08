@@ -1,5 +1,5 @@
 // What the page does once it has loaded: the island follows the scroll, answers and opens.
-import { ABOVE_SCENE, ANSWERED, BELOW_SCENE, LEGEND, REPOSITORY, STEPS, type TransientLine } from '../lib/demo';
+import { ABOVE_SCENE, ANSWERED, BELOW_SCENE, LEGEND, MERGE_REQUESTS, REPOSITORY, STEPS, type TransientLine } from '../lib/demo';
 import { COLOR, markSvg, type StateKind } from '../lib/marks';
 import { Companion, MOOD_LABEL, moodOf } from './companion';
 import { startDust } from './dust';
@@ -151,7 +151,7 @@ function legend() {
 
   function render() {
     const entry = LEGEND.find(entry => entry.kind === state)!;
-    preview.set({ counters: entry.counters, ring });
+    preview.set({ counters: entry.counters, ring, mergeRequestWaits: MERGE_REQUESTS.some(request => request.waits) });
     $('#screen').style.setProperty('--glow-color', COLOR[state]);
     $('.list', preview.content).dataset.focus = state;
     $('#read-caption').textContent = entry.caption;

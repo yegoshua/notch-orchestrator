@@ -40,7 +40,8 @@ export class Island {
     this.value.style.strokeDasharray = String(RING_LENGTH);
   }
 
-  set({ counters, ring: used }: Band) {
+  set({ counters, ring: used, mergeRequestWaits = false }: Band) {
+    this.root.classList.toggle('request-waits', mergeRequestWaits);
     const mood = moodOf(counters);
     this.companion.setMood(mood);
     this.root.style.setProperty('--glow', mood === 'asleep' ? 'transparent' : COLOR[mood]);
