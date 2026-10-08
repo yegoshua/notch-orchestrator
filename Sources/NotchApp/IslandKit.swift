@@ -73,6 +73,9 @@ enum Island {
     /// outside, and this much between it and the notch.
     static let collapsedEdge: CGFloat = 8
     static let notchGap: CGFloat = 7
+    /// The companion's height, and the room between it and the counters.
+    static let companionSize: CGFloat = 20
+    static let companionGap: CGFloat = 8
     /// How much further down than the system's safe area a notch is believed to reach.
     static let notchBeyondSafeArea: CGFloat = 6
     static let openPadding: CGFloat = 16
@@ -245,8 +248,8 @@ private struct MarkPath: Shape {
 
 // MARK: - The band
 
-/// Counters by state on the left and the usage ring on the right: the content of the collapsed
-/// island, and the top row of every open one.
+/// The companion and counters by state on the left and the usage ring on the right: the content
+/// of the collapsed island, and the top row of every open one.
 struct BandRow: View {
     let counters: Counters
     let limit: LimitWindow
@@ -257,8 +260,11 @@ struct BandRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            BandCounters(counters: counters)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: Island.companionGap) {
+                Companion(mood: CompanionMood(counters: counters))
+                BandCounters(counters: counters)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))

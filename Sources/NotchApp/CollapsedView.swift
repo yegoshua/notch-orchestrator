@@ -1,10 +1,10 @@
 import SessionCore
 import SwiftUI
 
-/// The island at rest: counters by state left of the notch and the usage ring right of it, or
-/// both in a top-centre pill on screens without a notch. It reaches only as far as what it shows:
-/// with no live sessions nothing is drawn left of the notch. Nothing in it moves while sessions
-/// simply work.
+/// The island at rest: the companion and counters by state left of the notch and the usage ring
+/// right of it, or both in a top-centre pill on screens without a notch. It reaches only as far
+/// as what it shows: without a connection nothing is drawn left of the notch. Only the companion
+/// moves while sessions simply work.
 struct CollapsedView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var presence: IslandPresence
@@ -20,6 +20,9 @@ struct CollapsedView: View {
     /// After "Remove Completely" nothing of the app should be left on screen.
     private var isVisible: Bool { hasSessions || showsRing }
 
+    /// The companion is there as long as the app is: asleep when nothing runs.
+    private var showsLeft: Bool { isVisible }
+
     /// A wing has room for two kinds of counter; what is merely done gives way to the others.
     private var showsFinished: Bool {
         [counters.waiting, counters.working, counters.failed].filter { $0 > 0 }.count <= 1
@@ -27,17 +30,20 @@ struct CollapsedView: View {
 
     /// What lies between the two sides: the notch, or the gap of the pill.
     private var middle: CGFloat {
-        geometry.hasNotch ? geometry.notchWidth : (hasSessions && showsRing ? Island.pillGap : 0)
+        geometry.hasNotch ? geometry.notchWidth : (showsLeft && showsRing ? Island.pillGap : 0)
     }
 
     var body: some View {
         let edge = geometry.collapsedEdge
         let gap = geometry.hasNotch ? Island.notchGap : 0
         HStack(spacing: 0) {
-            if hasSessions {
-                BandCounters(counters: counters, showsFinished: showsFinished)
-                    .padding(.leading, edge)
-                    .padding(.trailing, gap)
+            if showsLeft {
+                HStack(spacing: Island.companionGap) {
+                    Companion(mood: CompanionMood(counters: counters))
+                    if hasSessions { BandCounters(counters: counters, showsFinished: showsFinished) }
+                }
+                .padding(.leading, edge)
+                .padding(.trailing, gap)
             }
             Color.clear.frame(width: middle)
                 .alignmentGuide(.notchCentre) { $0[HorizontalAlignment.center] }
