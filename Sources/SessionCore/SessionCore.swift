@@ -114,6 +114,8 @@ public struct Settings: Equatable, Sendable {
     /// with no decision. Has to stay well below the time Claude Code lets the hook wait.
     public var requestTimeout: TimeInterval
     public var interruptionMode: InterruptionMode
+    /// Whether a Focus silences every mode.
+    public var respectsFocus: Bool
     /// How long the pipeline of a push is looked for before the push is taken to have none.
     public var pipelineLookupTimeout: TimeInterval
     /// How long a running pipeline may go without being seen running before it is unknown.
@@ -125,7 +127,7 @@ public struct Settings: Equatable, Sendable {
         livenessThreshold: TimeInterval = 600, unconfirmedWorkTimeout: TimeInterval = 180,
         requestTimeout: TimeInterval = 300, interruptionMode: InterruptionMode = .smart,
         pipelineLookupTimeout: TimeInterval = 120, pipelineConfirmationTimeout: TimeInterval = 300,
-        mergeRequestInterval: TimeInterval = 240
+        mergeRequestInterval: TimeInterval = 240, respectsFocus: Bool = true
     ) {
         self.livenessThreshold = livenessThreshold
         self.unconfirmedWorkTimeout = unconfirmedWorkTimeout
@@ -134,6 +136,7 @@ public struct Settings: Equatable, Sendable {
         self.pipelineLookupTimeout = pipelineLookupTimeout
         self.pipelineConfirmationTimeout = pipelineConfirmationTimeout
         self.mergeRequestInterval = mergeRequestInterval
+        self.respectsFocus = respectsFocus
     }
 }
 
@@ -582,9 +585,10 @@ public struct SessionCore {
         return interruptions
     }
 
-    /// A Focus asks for quiet whatever the user chose for other times.
+    /// A Focus asks for quiet whatever the user chose for other times, unless they chose that
+    /// it does not.
     private var mode: InterruptionMode {
-        attention.focusIsOn ? .quiet : settings.interruptionMode
+        attention.focusIsOn && settings.respectsFocus ? .quiet : settings.interruptionMode
     }
 
     private enum Frontness {

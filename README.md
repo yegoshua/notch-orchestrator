@@ -40,7 +40,7 @@ macOS asks for two permissions when they are first needed:
 - **Automation of Terminal**, to jump to a session's tab and to tell whether that tab is in front.
 - **Full Disk Access**, optional, to see whether a Focus is on. Without it a Focus is not respected.
 
-"Start at Login" is in the app's menu bar menu.
+"Start at login" is in the settings, which the app's menu bar menu opens. The GitLab tab there walks through signing `glab` in, so the island can follow pipelines and merge requests.
 
 ## Update
 
@@ -48,7 +48,7 @@ The app looks for a newer release by itself, checks the download against the upd
 
 ## Uninstall
 
-1. Choose **Remove Completely** in the app's menu: it takes the hooks and the status line wrapper out of `~/.claude/settings.json`.
+1. Choose **Remove…** on the Connection tab of the settings: it takes the hooks and the status line wrapper out of `~/.claude/settings.json`.
 2. Quit the app and delete `Notch Orchestrator.app`.
 3. Delete `~/Library/Application Support/notch-orchestrator` if you want its files gone too.
 

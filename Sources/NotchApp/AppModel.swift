@@ -41,7 +41,7 @@ final class AppModel: ObservableObject {
         ciView = config.ciView
         core = SessionCore(settings: Settings(
             livenessThreshold: TimeInterval(config.livenessMinutes * 60), requestTimeout: config.requestTimeout,
-            interruptionMode: config.interruptionMode))
+            interruptionMode: config.interruptionMode, respectsFocus: config.respectsFocus))
         snapshot = core.snapshot(at: Date())
         if let stored = try? Data(contentsOf: config.usageLimitsFile),
            let usage = try? JSONDecoder().decode(UsageLimits.self, from: stored) {
@@ -125,6 +125,7 @@ final class AppModel: ObservableObject {
     var livenessMinutes: Int {
         get { config.livenessMinutes }
         set {
+            objectWillChange.send()
             config.livenessMinutes = newValue
             core.settings.livenessThreshold = TimeInterval(newValue * 60)
             refreshSnapshot()
@@ -134,8 +135,20 @@ final class AppModel: ObservableObject {
     var interruptionMode: InterruptionMode {
         get { config.interruptionMode }
         set {
+            objectWillChange.send()
             config.interruptionMode = newValue
             core.settings.interruptionMode = newValue
+            lookAround()
+            refreshSnapshot()
+        }
+    }
+
+    var respectsFocus: Bool {
+        get { config.respectsFocus }
+        set {
+            objectWillChange.send()
+            config.respectsFocus = newValue
+            core.settings.respectsFocus = newValue
             lookAround()
             refreshSnapshot()
         }
@@ -340,6 +353,23 @@ final class AppModel: ObservableObject {
             if case .noAccess(let host) = state, !hosts.contains(host) { hosts.append(host) }
         }
         return hosts.map { ($0, GitProvider(host: $0).signInCommand(host: $0)) }
+    }
+
+    /// The GitLab hosts the setup is about: gitlab.com, those the user named and those sessions
+    /// pushed to.
+    var gitLabHosts: [String] {
+        var hosts = ["gitlab.com"] + config.gitLabHosts
+        hosts += snapshot.mergeRequests.map(\.remote.host) + unreachableHosts.map(\.host)
+        var seen: Set<String> = []
+        return hosts.filter { GitProvider(host: $0) == .gitLab && seen.insert($0).inserted }
+    }
+
+    /// Whether the tool is installed and signed in to each of `hosts`. Asked off the main thread.
+    func checkAccess(to hosts: [String], then report: @escaping @MainActor ([String: HostAccess]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let found = Dictionary(uniqueKeysWithValues: hosts.map { ($0, GitHost.access(to: $0, run: CommandLineTool.run)) })
+            Task { @MainActor in report(found) }
+        }
     }
 
     /// Looks up the pushes the core follows: only sessions that pushed, off the main thread, and

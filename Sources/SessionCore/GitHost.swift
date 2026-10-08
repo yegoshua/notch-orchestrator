@@ -17,6 +17,14 @@ public struct CLIAnswer: Equatable, Sendable {
     }
 }
 
+/// What stands between the app and a git host.
+public enum HostAccess: Equatable, Sendable {
+    /// The provider's command line tool is not installed.
+    case noTool
+    case signedOut
+    case signedIn
+}
+
 /// Asks a git host about a push through the provider's own command line tool, which carries the
 /// user's sign-in: no token ever passes through here. Only the reading of the answers is decided
 /// here; running the tool is the caller's.
@@ -51,6 +59,12 @@ public enum GitHost {
             else { return nil }
             return RequestLink(number: number, url: url, branch: branch, state: found["state"] as? String)
         }
+    }
+
+    /// Whether the provider's tool is there and signed in to `host`.
+    public static func access(to host: String, run: Run) -> HostAccess {
+        guard let answer = run(GitProvider(host: host).tool, ["auth", "status", "--hostname", host]) else { return .noTool }
+        return answer.exitStatus == 0 ? .signedIn : .signedOut
     }
 
     /// The answer to an API call, when the call went through.

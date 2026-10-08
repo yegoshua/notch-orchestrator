@@ -1,17 +1,18 @@
 import AppKit
-import ServiceManagement
 import SessionCore
 
-/// The menu bar item: connection state and the two connection actions.
+/// The menu bar item: connection state, usage limits and the way to the settings window.
 @MainActor
 final class StatusMenuController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let model: AppModel
     private let updater: AppUpdater
+    private let settings: SettingsWindowController
 
-    init(model: AppModel, updater: AppUpdater) {
+    init(model: AppModel, updater: AppUpdater, settings: SettingsWindowController) {
         self.model = model
         self.updater = updater
+        self.settings = settings
         super.init()
         item.button?.image = NSImage(systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: "Notch Orchestrator")
         let menu = NSMenu()
@@ -33,23 +34,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         addLimits(to: menu)
         addPipelineAccess(to: menu)
         menu.addItem(.separator())
-        add("Repair Connection", #selector(repair), to: menu)
-        add("Remove Completely", #selector(remove), to: menu)
-        menu.addItem(.separator())
-
-        let liveness = NSMenuItem(title: "Keep Finished Sessions For", action: nil, keyEquivalent: "")
-        liveness.submenu = NSMenu()
-        for minutes in [1, 5, 10, 30, 60] {
-            let choice = add("\(minutes) min", #selector(setLiveness(_:)), to: liveness.submenu!)
-            choice.tag = minutes
-            choice.state = model.livenessMinutes == minutes ? .on : .off
-        }
-        menu.addItem(liveness)
-        HotkeyMenu.shared.add(to: menu)
-        addCIView(to: menu)
-        addInterruptions(to: menu)
-        addScreens(to: menu)
-        addLoginItem(to: menu)
+        if model.connectionStatus != .connected { add("Repair Connection", #selector(repair), to: menu) }
+        add("Settings…", #selector(openSettings), to: menu).keyEquivalent = ","
         menu.addItem(.separator())
         if let version = updater.version {
             menu.addItem(withTitle: "Version \(version)", action: nil, keyEquivalent: "").isEnabled = false
@@ -87,96 +73,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             let copy = add("Copy Sign-In Command: \(command)", #selector(copyCommand(_:)), to: menu)
             copy.representedObject = command
         }
-    }
-
-    private static let ciViews: [(view: CIView, title: String)] = [
-        (.detailed, "Detailed: a line of its own under the session"),
-        (.compact, "Compact: a mark in the session's row"),
-    ]
-
-    private func addCIView(to menu: NSMenu) {
-        let item = NSMenuItem(title: "Show CI As", action: nil, keyEquivalent: "")
-        item.submenu = NSMenu()
-        for (index, choice) in Self.ciViews.enumerated() {
-            let entry = add(choice.title, #selector(setCIView(_:)), to: item.submenu!)
-            entry.tag = index
-            entry.state = model.ciView == choice.view ? .on : .off
+        if hosts.contains(where: { GitProvider(host: $0.host) == .gitLab }) {
+            add("Set Up GitLab…", #selector(setUpGitLab), to: menu)
         }
-        menu.addItem(item)
-    }
-
-    private static let modes: [(mode: InterruptionMode, title: String)] = [
-        (.loud, "Loud: expand and sound for every request and every finished turn"),
-        (.smart, "Smart: expand and sound only for a session that is not in front"),
-        (.quiet, "Quiet: counters only"),
-    ]
-
-    private func addInterruptions(to menu: NSMenu) {
-        let interruptions = NSMenuItem(title: "Interruptions", action: nil, keyEquivalent: "")
-        interruptions.submenu = NSMenu()
-        for (index, choice) in Self.modes.enumerated() {
-            let entry = add(choice.title, #selector(setMode(_:)), to: interruptions.submenu!)
-            entry.tag = index
-            entry.state = model.interruptionMode == choice.mode ? .on : .off
-        }
-        interruptions.submenu!.addItem(.separator())
-        let focus = model.attentionMonitor.canReadFocus
-            ? "A Focus silences every mode"
-            : "Focus cannot be read, so it is not respected (needs Full Disk Access)"
-        interruptions.submenu!.addItem(withTitle: focus, action: nil, keyEquivalent: "").isEnabled = false
-        menu.addItem(interruptions)
-
-        let sound = NSMenuItem(title: "Sound", action: nil, keyEquivalent: "")
-        sound.submenu = NSMenu()
-        add("None", #selector(setSound(_:)), to: sound.submenu!).state = InterruptionSound.current == nil ? .on : .off
-        sound.submenu!.addItem(.separator())
-        for name in InterruptionSound.names {
-            let entry = add(name, #selector(setSound(_:)), to: sound.submenu!)
-            entry.representedObject = name
-            entry.state = InterruptionSound.current == name ? .on : .off
-        }
-        menu.addItem(sound)
-
-        let finish = NSMenuItem(title: "Finish Sound", action: nil, keyEquivalent: "")
-        finish.submenu = NSMenu()
-        add("None", #selector(setFinishSound(_:)), to: finish.submenu!).state = FinishSound.current == nil ? .on : .off
-        finish.submenu!.addItem(.separator())
-        for voice in FinishSound.Voice.allCases {
-            let entry = add(voice.rawValue, #selector(setFinishSound(_:)), to: finish.submenu!)
-            entry.representedObject = voice.rawValue
-            entry.state = FinishSound.current == voice ? .on : .off
-        }
-        menu.addItem(finish)
-    }
-
-    private func addScreens(to menu: NSMenu) {
-        let screens = NSMenuItem(title: "Show Island On", action: nil, keyEquivalent: "")
-        screens.submenu = NSMenu()
-        let chosen = IslandScreen.chosen
-        add("Automatic", #selector(setScreen(_:)), to: screens.submenu!).state = chosen == nil ? .on : .off
-        screens.submenu!.addItem(.separator())
-        var isConnected = false
-        for screen in NSScreen.screens {
-            guard let id = screen.displayID else { continue }
-            let entry = add(screen.localizedName, #selector(setScreen(_:)), to: screens.submenu!)
-            entry.representedObject = [id, screen.localizedName]
-            entry.state = chosen?.id == id ? .on : .off
-            isConnected = isConnected || chosen?.id == id
-        }
-        if let chosen, !isConnected {
-            // The choice is kept for when the display comes back; until then the app picks.
-            let entry = screens.submenu!.addItem(withTitle: "\(chosen.name) (not connected)", action: nil, keyEquivalent: "")
-            entry.state = .on
-            entry.isEnabled = false
-        }
-        menu.addItem(screens)
-    }
-
-    /// The system keeps the login item and may want the user to allow it in System Settings.
-    private func addLoginItem(to menu: NSMenu) {
-        let status = SMAppService.mainApp.status
-        let title = status == .requiresApproval ? "Start at Login (allow it in System Settings)" : "Start at Login"
-        add(title, #selector(toggleLoginItem), to: menu).state = status == .enabled ? .on : .off
     }
 
     @discardableResult
@@ -187,11 +86,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func repair() { model.repairConnection() }
-    @objc private func remove() { model.removeConnection() }
-    @objc private func setLiveness(_ sender: NSMenuItem) { model.livenessMinutes = sender.tag }
-    @objc private func setCIView(_ sender: NSMenuItem) { model.ciView = Self.ciViews[sender.tag].view }
-
-    @objc private func setMode(_ sender: NSMenuItem) { model.interruptionMode = Self.modes[sender.tag].mode }
+    @objc private func openSettings() { settings.show() }
+    @objc private func setUpGitLab() { settings.show(.gitLab) }
 
     @objc private func copyCommand(_ sender: NSMenuItem) {
         guard let command = sender.representedObject as? String else { return }
@@ -200,35 +96,4 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func checkForUpdates() { updater.checkForUpdates() }
-
-    @objc private func toggleLoginItem() {
-        let service = SMAppService.mainApp
-        do {
-            if service.status == .enabled {
-                try service.unregister()
-            } else {
-                try service.register()
-            }
-        } catch {
-            // Refused by the system; the item shows the state it is left in.
-            NSSound.beep()
-        }
-    }
-
-    @objc private func setSound(_ sender: NSMenuItem) {
-        InterruptionSound.current = sender.representedObject as? String
-        // So the choice can be made by ear.
-        InterruptionSound.play()
-    }
-
-    @objc private func setFinishSound(_ sender: NSMenuItem) {
-        FinishSound.current = (sender.representedObject as? String).flatMap(FinishSound.Voice.init)
-        // So the choice can be made by ear.
-        FinishSound.play(after: 0)
-    }
-
-    @objc private func setScreen(_ sender: NSMenuItem) {
-        let screen = sender.representedObject as? [String]
-        IslandScreen.chosen = screen.map { ($0[0], $0[1]) }
-    }
 }

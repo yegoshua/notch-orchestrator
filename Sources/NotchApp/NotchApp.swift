@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var requestCard: RequestCardController?
     private var transientLine: TransientLineController?
     private var menu: StatusMenuController?
+    private var settings: SettingsWindowController?
     private var updater: AppUpdater?
 
     static func main() {
@@ -28,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         transientLine = TransientLineController(model: model, presence: presence)
         let updater = AppUpdater()
         self.updater = updater
-        menu = StatusMenuController(model: model, updater: updater)
+        let settings = SettingsWindowController(model: model, updater: updater)
+        self.settings = settings
+        menu = StatusMenuController(model: model, updater: updater, settings: settings)
+        // `-openSettings GitLab` opens the window on a tab at launch, for a check by hand.
+        if let tab = UserDefaults.standard.string(forKey: "openSettings").flatMap(SettingsTab.init) { settings.show(tab) }
     }
 }

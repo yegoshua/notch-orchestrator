@@ -549,3 +549,25 @@ private func gitLabApprovals(by names: [String], required: Int) -> String {
         #expect(cli.calls.isEmpty)
     }
 }
+
+@Suite struct HostAccessChecks {
+    @Test func aToolThatIsSignedInHasAccess() {
+        let cli = Recorded(["gitlab.example.com": ok("")])
+
+        #expect(GitHost.access(to: "gitlab.example.com", run: cli.run) == .signedIn)
+        #expect(cli.calls == [["glab", "auth", "status", "--hostname", "gitlab.example.com"]])
+    }
+
+    @Test func aToolThatRefusesIsSignedOut() {
+        let cli = Recorded(["gitlab.com": refused("", "No token found")])
+
+        #expect(GitHost.access(to: "gitlab.com", run: cli.run) == .signedOut)
+    }
+
+    @Test func aMissingToolIsToldApart() {
+        let cli = Recorded([:])
+        cli.isInstalled = false
+
+        #expect(GitHost.access(to: "gitlab.com", run: cli.run) == .noTool)
+    }
+}

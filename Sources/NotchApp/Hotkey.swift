@@ -47,7 +47,7 @@ final class GlobalHotkey {
 }
 
 /// The user's choice of the combination that expands the session list.
-struct HotkeySetting: Equatable {
+struct HotkeySetting: Hashable {
     static let changed = Notification.Name("HotkeySettingChanged")
     static let escapeKeyCode = UInt32(kVK_Escape)
 
@@ -83,32 +83,5 @@ struct HotkeySetting: Equatable {
             UserDefaults.standard.set(Int(newValue.modifiers), forKey: "hotkeyModifiers")
             NotificationCenter.default.post(name: changed, object: nil)
         }
-    }
-}
-
-/// The "Expand Hotkey" submenu of the status menu.
-@MainActor
-final class HotkeyMenu: NSObject {
-    static let shared = HotkeyMenu()
-
-    func add(to menu: NSMenu) {
-        let item = NSMenuItem(title: "Expand Hotkey", action: nil, keyEquivalent: "")
-        item.submenu = NSMenu()
-        let current = HotkeySetting.current
-        var choices = HotkeySetting.presets
-        if !choices.contains(current) { choices.insert(current, at: 0) }
-        for (index, choice) in choices.enumerated() {
-            let entry = item.submenu!.addItem(withTitle: choice.title, action: #selector(choose(_:)), keyEquivalent: "")
-            entry.target = self
-            entry.state = choice == current ? .on : .off
-            entry.tag = choices.count == HotkeySetting.presets.count ? index : index - 1
-        }
-        menu.addItem(item)
-    }
-
-    @objc private func choose(_ sender: NSMenuItem) {
-        // A negative tag is the custom combination already in effect.
-        guard HotkeySetting.presets.indices.contains(sender.tag) else { return }
-        HotkeySetting.current = HotkeySetting.presets[sender.tag]
     }
 }
