@@ -4,7 +4,7 @@ A macOS app that lives in the MacBook notch and keeps an eye on your Claude Code
 
 - **One list of every live session**, with a state you can trust: what the hooks say is checked against the session's process and transcript, and what cannot be confirmed shows as unknown.
 - **Answer from the notch**: allow or deny a tool call, or pick an answer to the agent's question, without switching windows.
-- **Jump to the session**: the exact Terminal tab, the session in the Claude desktop app, or the VS Code window.
+- **Jump to the session**: the exact Terminal tab or Warp pane, the session in the Claude desktop app, or the VS Code window.
 - **CI of what a session pushed**: the pipeline's state and stage in the session's row, through your own `gh` and `glab` sign-in. The app holds no tokens.
 - **Merge requests, after the session**: the merge request a session pushed to stays in the list with its approvals, says when it is ready to merge, and after the merge shows the pipeline and the environments it is deployed to. On GitLab for now.
 - **Usage limits** of your account, 5-hour and weekly, as a ring beside the notch.

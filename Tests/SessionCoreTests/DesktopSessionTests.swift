@@ -169,6 +169,8 @@ private func record(
     }
 }
 
+private let warpLink = "warp://session/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+
 /// What a click on a session does, said before the click.
 @Suite struct JumpTargets {
     @Test func aTerminalSessionOpensItsExactTab() throws {
@@ -176,6 +178,38 @@ private func record(
 
         #expect(target.label == "Open terminal tab")
         #expect(target.precision == .exact)
+    }
+
+    @Test func aWarpSessionOpensItsExactPane() throws {
+        let target = try #require(SessionLocation.warp(bundleID: "dev.warp.Warp-Stable", link: warpLink).jumpTarget)
+
+        #expect(target.label == "Open Warp pane")
+        #expect(target.precision == .exact)
+        #expect(target.reach == "exact pane")
+    }
+
+    @Test func onlyALinkOfTheShapeWarpWritesIsTaken() {
+        #expect(SessionLocation.warpLink(warpLink) == warpLink)
+        #expect(SessionLocation.warpLink("warppreview://session/A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4") != nil)
+        #expect(SessionLocation.warpLink(nil) == nil)
+        #expect(SessionLocation.warpLink("warp://session/a1b2") == nil)
+        #expect(SessionLocation.warpLink("warp://action/new_tab?path=/tmp") == nil)
+        #expect(SessionLocation.warpLink("https://example.com/session/a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4") == nil)
+        #expect(SessionLocation.warpLink(warpLink + "/../x") == nil)
+    }
+
+    @Test func theEnvironmentIsReadFromWhatTheSystemKeepsOfAProcess() {
+        var bytes: [UInt8] = [3, 0, 0, 0]
+        bytes += Array("/usr/local/bin/claude".utf8) + [0, 0, 0, 0]
+        for argument in ["claude", "", "--resume"] { bytes += Array(argument.utf8) + [0] }
+        for entry in ["HOME=/Users/me", "WARP_FOCUS_URL=\(warpLink)", "EMPTY=", "A=b=c"] { bytes += Array(entry.utf8) + [0] }
+        bytes += [0, 0, 0]
+
+        #expect(ProcessArguments.environment(in: bytes) == [
+            "HOME": "/Users/me", "WARP_FOCUS_URL": warpLink, "EMPTY": "", "A": "b=c",
+        ])
+        #expect(ProcessArguments.environment(in: []) == [:])
+        #expect(ProcessArguments.environment(in: [9, 0, 0, 0, 47, 0]) == [:])
     }
 
     @Test func aDesktopSessionOpensInTheDesktopApp() throws {
@@ -210,6 +244,7 @@ private func record(
     @Test func everyTargetExplainsHowCloseItGets() {
         let locations: [SessionLocation] = [
             .terminalApp(tty: "/dev/ttys011"), .desktopApp(sessionID: "local_1"),
+            .warp(bundleID: "dev.warp.Warp-Stable", link: warpLink),
             .vsCode(bundleID: "com.microsoft.VSCode"), .application(name: "Ghostty", bundleID: "com.mitchellh.ghostty"),
         ]
         for location in locations {
@@ -226,6 +261,7 @@ private func record(
         #expect(SessionLocation.desktopApp(sessionID: "local_1").originDescription == "Desktop app")
         #expect(SessionLocation.vsCode(bundleID: "com.microsoft.VSCode").originDescription == "VS Code (CLI)")
         #expect(SessionLocation.application(name: "iTerm2", bundleID: "x").originDescription == "iTerm2 (CLI)")
+        #expect(SessionLocation.warp(bundleID: "dev.warp.Warp-Stable", link: warpLink).originDescription == "Warp (CLI)")
         #expect(SessionLocation.unknown.originDescription == "CLI")
     }
 }
