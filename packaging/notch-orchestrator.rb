@@ -18,6 +18,13 @@ cask "notch-orchestrator" do
 
   app "Notch Orchestrator.app"
 
+  # The app is not notarized, and Homebrew marks what it downloads the way a browser does, so
+  # macOS would refuse to open it. The mark is taken off again; see the caveats.
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Notch Orchestrator.app"]
+  end
+
   uninstall quit: "dev.notch-orchestrator.app"
 
   zap trash: [
@@ -26,9 +33,9 @@ cask "notch-orchestrator" do
   ]
 
   caveats <<~EOS
-    Notch Orchestrator is not notarized by Apple. Install it with
-      brew install --cask --no-quarantine notch-orchestrator
-    or macOS will refuse to open it.
+    Notch Orchestrator is signed with its project's own certificate and is not
+    notarized by Apple. This cask removes the quarantine mark from the app so
+    that macOS opens it.
 
     Before removing it, choose "Remove Completely" in its menu, so that its
     hooks leave ~/.claude/settings.json.

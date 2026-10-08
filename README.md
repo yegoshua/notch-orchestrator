@@ -26,10 +26,10 @@ The app is signed with the project's own certificate and is not notarized by App
 ### Homebrew
 
 ```sh
-brew install --cask --no-quarantine yegoshua/tap/notch-orchestrator
+brew install --cask yegoshua/tap/notch-orchestrator
 ```
 
-`--no-quarantine` is needed for the same reason. Homebrew is moving away from casks that are not notarized, so the installer above is the primary way.
+Homebrew marks what it downloads the way a browser does, so the cask takes that mark off the app again. Homebrew is moving away from casks that are not notarized, so the installer above is the primary way.
 
 ### After installing
 
