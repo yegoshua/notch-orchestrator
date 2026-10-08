@@ -64,7 +64,7 @@ scripts/build-app.sh        # universal, ad-hoc signed bundle in .build/app/
 
 `CLAUDE.md` describes the layout and how to run a development build without touching your real Claude Code settings.
 
-The landing page lives in `site/` and needs no build: `python3 -m http.server --directory site`.
+The landing page lives in `site/`, an Astro project: `npm install` and `npm run dev` there.
 
 ## Release (maintainers)
 

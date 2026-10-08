@@ -1,0 +1,41 @@
+---
+import Features from '../components/Features.astro';
+import Footer from '../components/Footer.astro';
+import Hero from '../components/Hero.astro';
+import How from '../components/How.astro';
+import Install from '../components/Install.astro';
+import Island from '../components/Island.astro';
+import Keys from '../components/Keys.astro';
+import Legend from '../components/Legend.astro';
+import RequestCard from '../components/RequestCard.astro';
+import Scene from '../components/Scene.astro';
+import SessionList from '../components/SessionList.astro';
+import Base from '../layouts/Base.astro';
+---
+<Base
+  title="Notch Orchestrator — Claude Code sessions in the MacBook notch"
+  description="A small macOS app that lives in the MacBook notch and keeps an eye on your Claude Code sessions, in the terminal and in the desktop app alike."
+>
+  <!-- The island at the top of the page: a replica of the app's, at its real size. -->
+  <Island id="island" placement="top" label="Demo of the island" />
+
+  <main>
+    <Hero />
+    <Scene />
+    <Legend />
+    <Features />
+    <Keys />
+    <How />
+    <Install />
+  </main>
+  <Footer />
+
+  <!-- What the island at the top opens on. -->
+  <template id="tpl-card"><RequestCard /></template>
+  <template id="tpl-list"><SessionList /></template>
+  <template id="tpl-line"><div class="tline"><b></b><span class="ending"></span><span class="project"></span></div></template>
+
+  <script>
+    import '../scripts/page';
+  </script>
+</Base>

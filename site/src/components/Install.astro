@@ -1,0 +1,44 @@
+---
+import { INSTALL_COMMAND } from '../lib/demo';
+---
+<section class="block install" id="install">
+  <header class="block-head">
+    <h2>Try it on your Mac.</h2>
+    <p class="lede">Paste this into a terminal.</p>
+  </header>
+  <div class="command">
+    <code id="install-command">{INSTALL_COMMAND}</code>
+    <button type="button" class="button" id="copy">Copy</button>
+  </div>
+  <p class="fine" id="release">macOS 14 or later · MIT</p>
+
+  <ol class="steps">
+    <li><span>1</span><p>The installer downloads the latest release, puts the app into Applications and starts it. macOS accepts an app that <code>curl</code> downloaded, and refuses the same one from a browser, which is why this is the way in.</p></li>
+    <li><span>2</span><p>The app connects itself to Claude Code. Restart the sessions that were already running.</p></li>
+    <li><span>3</span><p>macOS asks to automate Terminal when that is first needed: to jump to a session's tab and to tell whether the tab is in front. "Start at Login" is in the menu bar menu.</p></li>
+  </ol>
+
+  <p class="alt">With Homebrew: <code>brew install --cask yegoshua/tap/notch-orchestrator</code></p>
+</section>
+
+<style>
+  .install { text-align: center; }
+  .block-head { margin-bottom: 28px; }
+  .command {
+    display: flex; align-items: center; gap: 12px; max-width: 880px; margin: 0 auto 14px; padding: 10px 10px 10px 22px;
+    background: var(--well); border: 1px solid #262626; border-radius: 34px; text-align: left;
+  }
+  .command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 14px; color: var(--text); scrollbar-width: none; }
+  .command code::before { content: "$ "; color: var(--text4); }
+  .command .button { flex: none; min-width: 92px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin: 72px 0 40px; text-align: left; }
+  .steps li { display: grid; gap: 12px; align-content: start; border-top: 1px solid var(--line); padding-top: 20px; }
+  .steps span { font: 500 15px var(--mono); color: var(--text3); }
+  .steps p, .alt { color: var(--text2); font-size: 16px; }
+  .alt code { color: var(--text); overflow-wrap: anywhere; }
+
+  @media (max-width: 860px) {
+    .steps { grid-template-columns: 1fr; }
+    .command { flex-direction: column; align-items: stretch; border-radius: 22px; padding: 16px; }
+  }
+</style>

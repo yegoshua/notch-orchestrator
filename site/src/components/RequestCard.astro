@@ -1,0 +1,18 @@
+---
+// A permission request, as RequestCardView.swift draws it.
+import Mark from './Mark.astro';
+---
+<div class="card">
+  <div class="card-head">
+    <Mark kind="waiting" />
+    <div class="card-title"><b>Migrate orders table</b><span>payments-api · Terminal (CLI) · 42s ago</span></div>
+    <span class="chip">Bash</span>
+  </div>
+  <p class="ask">Run a shell command</p>
+  <pre class="well"><i>$</i> npm run migrate -- --env staging</pre>
+  <div class="card-actions">
+    <button type="button" class="ibtn" data-act="deny">Deny with explanation</button>
+    <button type="button" class="ibtn" data-act="deny">Deny <kbd>⌃⌥X</kbd></button>
+    <button type="button" class="ibtn primary" data-act="allow">Allow <kbd>⌃⌥Y</kbd></button>
+  </div>
+</div>

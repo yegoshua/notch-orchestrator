@@ -1,7 +1,7 @@
 name: Site
 
-# Publishes site/ to GitHub Pages. Pages must be set to "GitHub Actions" once, in the
-# repository's settings.
+# Builds site/ with Astro and publishes it to GitHub Pages. Pages must be set to "GitHub Actions"
+# once, in the repository's settings.
 on:
   push:
     branches: [main]
@@ -18,16 +18,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: withastro/action@v3
+        with:
+          path: site
+
   deploy:
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
       - id: deployment
         uses: actions/deploy-pages@v4

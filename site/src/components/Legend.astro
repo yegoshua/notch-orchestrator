@@ -1,0 +1,66 @@
+---
+// "How to read the island": the open island on a screen, and the choices that change it.
+import { LEGEND, RING_CHOICES } from '../lib/demo';
+import Island from './Island.astro';
+import Mark from './Mark.astro';
+import SessionList from './SessionList.astro';
+---
+<section class="block" id="read">
+  <header class="block-head">
+    <h2>How to read the island.</h2>
+    <p class="lede">Every state has its own colour and its own shape, so it never rests on colour alone. Counters are numbers beside a mark, not one dot per session.</p>
+  </header>
+  <div class="read">
+    <div class="screen">
+      <Island id="preview" placement="static" label="The open island with a list of sessions"><SessionList /></Island>
+      <p class="caption" id="read-caption" aria-live="polite"></p>
+    </div>
+    <div class="controls">
+      <h3 id="state-label">State</h3>
+      <div class="options" id="state-options" role="group" aria-labelledby="state-label">
+        {LEGEND.map(entry => (
+          <button type="button" data-state={entry.kind}><Mark kind={entry.kind} /><b>{entry.name}</b><span>{entry.means}</span></button>
+        ))}
+      </div>
+      <h3 id="ring-label">Usage ring</h3>
+      <div class="segmented" id="ring-options" role="group" aria-labelledby="ring-label">
+        {RING_CHOICES.map(used => <button type="button" data-ring={used ?? ''}>{used === null ? 'No data' : `${used}%`}</button>)}
+      </div>
+      <p class="fine">The ring is your five-hour limit, and stays quiet until the limit comes close. The weekly limit is in the list and in the menu.</p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .read { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+  .screen {
+    display: flex; flex-direction: column; justify-content: space-between; gap: 28px; min-height: 520px;
+    border: 1px solid #2a2a2a; border-top: 0; border-radius: 0 0 28px 28px;
+    background: linear-gradient(165deg, #232a3b, #1a1624 50%, #0d0d10);
+    overflow: hidden;
+  }
+  .caption { padding: 0 24px 24px; text-align: center; text-wrap: balance; color: var(--text2); font-size: 15px; }
+
+  .controls { display: grid; gap: 14px; }
+  .controls h3 { margin-top: 10px; }
+  .options { display: grid; gap: 6px; }
+  .options button, .segmented button {
+    border: 1px solid var(--line); border-radius: 12px; background: #0d0d0d; color: var(--text2);
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .options button { display: grid; grid-template-columns: 16px auto 1fr; align-items: center; gap: 4px 6px; padding: 11px 14px; text-align: left; font-size: 15px; }
+  .options b { font-weight: 600; color: var(--text); }
+  .options span { color: var(--text3); font-size: 13px; text-align: right; }
+  .options button:hover, .segmented button:hover { background: #151515; }
+  .options button[aria-pressed="true"], .segmented button[aria-pressed="true"] { background: #1c1c1c; border-color: #3a3a3a; color: var(--text); }
+  .segmented { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .segmented button { height: 40px; font-size: 14px; font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 860px) {
+    .read { grid-template-columns: 1fr; }
+    .screen { min-height: 0; }
+  }
+  @media (max-width: 480px) {
+    .options span { display: none; }
+  }
+</style>

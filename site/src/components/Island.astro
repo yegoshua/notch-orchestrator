@@ -1,0 +1,27 @@
+---
+// The island: the band beside the notch, and what opens below it. scripts/island.ts fills in
+// the counters and the ring; the slot is what an island that is always open shows.
+interface Props {
+  id: string;
+  label: string;
+  /** Fixed to the top of the page, or part of it and always open. */
+  placement: 'top' | 'static';
+}
+const { id, label, placement } = Astro.props;
+---
+<div id={id} class:list={['island', `island-${placement}`]} role="group" aria-label={label}>
+  <div class="island-body">
+    <div class="band">
+      <div class="wing wing-l"><canvas class="companion" role="img"></canvas><div class="counters"></div></div>
+      <div></div>
+      <div class="wing wing-r">
+        <svg class="ring" viewBox="0 0 14 14" aria-hidden="true">
+          <circle class="track" cx="7" cy="7" r="5.5"></circle>
+          <circle class="value" cx="7" cy="7" r="5.5"></circle>
+        </svg>
+        <span class="pct"></span>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-clip"><div class="panel-content"><slot /></div></div></div>
+  </div>
+</div>

@@ -1,0 +1,9 @@
+---
+import { markShape, markViewBox, type StateKind } from '../lib/marks';
+
+interface Props {
+  kind: StateKind;
+}
+const { kind } = Astro.props;
+---
+<svg class="mark" data-mark={kind} viewBox={markViewBox(kind)} aria-hidden="true" set:html={markShape(kind)} />

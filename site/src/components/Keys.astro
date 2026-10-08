@@ -1,0 +1,46 @@
+<section class="block keys" id="keys">
+  <div>
+    <h2>Without the mouse.</h2>
+    <p class="lede">A hotkey opens the list of sessions from any app. <kbd>⌃⌥Y</kbd> allows the request on the card, <kbd>⌃⌥X</kbd> denies it.</p>
+    <div class="try">
+      <button type="button" class="keycaps" id="hotkey" aria-expanded="false" aria-label="Open the session list (Control Option N)">
+        <kbd data-key="Control">⌃</kbd><kbd data-key="Alt">⌥</kbd><kbd data-key="KeyN">N</kbd>
+      </button>
+      <p class="fine">Opens the list. Press it right now, or tap the keys.</p>
+    </div>
+  </div>
+  <div class="modes">
+    <h3>It interrupts as much as you let it</h3>
+    <dl>
+      <div><dt>Loud</dt><dd>Expands and sounds for every request and every finished turn.</dd></div>
+      <div><dt>Smart</dt><dd>Only for a session that is not already in front of you.</dd></div>
+      <div><dt>Quiet</dt><dd>Counters only.</dd></div>
+    </dl>
+    <p class="fine">A Focus silences every mode.</p>
+  </div>
+</section>
+
+<style>
+  .keys { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 56px; align-items: end; }
+  .lede { margin-top: 18px; }
+  .lede kbd { color: var(--text); font: inherit; white-space: nowrap; }
+  .try { display: flex; align-items: center; gap: 22px; margin-top: 36px; flex-wrap: wrap; }
+  .keycaps { display: flex; gap: 8px; }
+  .keycaps kbd {
+    display: grid; place-items: center; width: 60px; height: 60px; border-radius: 12px;
+    font: 500 24px var(--sans); background: linear-gradient(#1b1b1b, #101010);
+    box-shadow: inset 0 0 0 1px #2c2c2c, 0 3px 0 #050505;
+    transition: transform 0.08s, background 0.08s, color 0.08s;
+  }
+  .keycaps:active kbd, .keycaps kbd.down { transform: translateY(2px); background: linear-gradient(#f8c96a, #efae37); color: #000; }
+
+  .modes dl { margin-top: 18px; display: grid; }
+  .modes dl div { display: grid; grid-template-columns: 76px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 16px; }
+  .modes dt { font-weight: 600; }
+  .modes dd { color: var(--text2); }
+  .modes .fine { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+
+  @media (max-width: 860px) {
+    .keys { grid-template-columns: 1fr; gap: 48px; }
+  }
+</style>

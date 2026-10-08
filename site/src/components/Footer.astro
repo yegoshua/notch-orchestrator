@@ -1,0 +1,12 @@
+---
+import { REPOSITORY } from '../lib/demo';
+const repository = `https://github.com/${REPOSITORY}`;
+---
+<footer>
+  <p>Notch Orchestrator is free and open source, under the MIT licence. <a href={repository}>Source on GitHub</a> · <a href={`${repository}/releases`}>Releases</a> · <a href={`${repository}/issues`}>Issues</a></p>
+  <p>Not affiliated with Anthropic. Self-update is <a href="https://sparkle-project.org">Sparkle</a>; the idea of an island growing out of the notch owes much to NotchDrop, DynamicNotchKit and Vibe Notch.</p>
+</footer>
+
+<style>
+  footer { border-top: 1px solid var(--line); padding: 40px var(--gutter) 56px; display: grid; gap: 10px; color: var(--text3); font-size: 14px; }
+</style>

@@ -1,0 +1,28 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const icon = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7'/><rect x='7' y='22' width='5' height='4' rx='1.5' fill='#C9643F'/><rect x='20' y='22' width='5' height='4' rx='1.5' fill='#C9643F'/><rect x='4' y='7' width='24' height='17' rx='5.5' fill='#E07A52'/><rect x='9' y='11' width='3' height='7' rx='1.5' fill='#1B1410'/><rect x='20' y='11' width='3' height='7' rx='1.5' fill='#1B1410'/></svg>`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#000000" />
+    <meta property="og:title" content="Notch Orchestrator" />
+    <meta property="og:description" content="See which Claude Code session needs you, and answer it from the notch." />
+    <meta property="og:type" content="website" />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+    <link rel="icon" href={`data:image/svg+xml,${encodeURIComponent(icon)}`} />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

@@ -1,0 +1,60 @@
+---
+// The scene: the page stays put while the island at its top goes through its states.
+import { STEPS } from '../lib/demo';
+import { COLOR } from '../lib/marks';
+import Mark from './Mark.astro';
+---
+<section class="scene" id="scene" aria-label="The states of the island" style={`--stops: ${STEPS.length}`}>
+  <div class="pin">
+    <div class="copy">
+      <h2>One afternoon,<br />five states.</h2>
+      <p class="lede">The island at the top of this page is a replica of the app's, at its real size. Scroll, and it goes from sleep to work that is done.</p>
+      <p class="clock" id="scene-clock">{STEPS[0].clock}</p>
+      <p class="state" id="scene-state">{STEPS[0].state}</p>
+      <p class="detail" id="scene-detail">{STEPS[0].detail}</p>
+    </div>
+    <div class="stage" aria-hidden="true">
+      <canvas id="scene-companion"></canvas>
+    </div>
+    <ol class="steps" id="steps">
+      {STEPS.map(step => (
+        <li style={`--c: ${COLOR[step.kind]}`}>
+          <button type="button"><span class="bar"><i></i></span><span class="label"><Mark kind={step.kind} />{step.label}</span></button>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<style>
+  .scene { height: calc(var(--stops) * 100vh); position: relative; }
+  .pin {
+    position: sticky; top: 0; height: 100svh; min-height: 560px; overflow: hidden;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto;
+    padding: 0 var(--gutter) clamp(24px, 4vh, 40px);
+  }
+  .copy { align-self: end; padding-bottom: 40px; }
+  .lede { margin-top: 18px; }
+  .clock { margin-top: 36px; font: 500 44px/1 var(--mono); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .state { margin-top: 16px; font-weight: 600; color: var(--state, var(--text)); transition: color 0.3s; }
+  .detail { margin-top: 6px; color: var(--text2); font-size: 16px; max-width: 28em; min-height: 4.5em; }
+
+  .stage { display: grid; place-items: center; align-self: end; padding-bottom: 56px; }
+  .stage canvas { filter: drop-shadow(0 30px 40px rgb(0 0 0 / 0.6)); }
+
+  .steps { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(var(--stops), 1fr); gap: 6px; }
+  .steps button { display: grid; gap: 10px; width: 100%; padding: 8px 0 4px; text-align: left; color: var(--text3); font-size: 13px; }
+  .steps .current button { color: var(--text); }
+  .bar { display: block; height: 3px; border-radius: 2px; background: #222; overflow: hidden; }
+  .bar i { display: block; height: 100%; transform-origin: left; transform: scaleX(var(--p, 0)); background: var(--c); }
+  .label { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+
+  @media (max-width: 860px) {
+    .pin { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; }
+    .stage { grid-row: 1; padding-bottom: 24px; }
+    .copy { grid-row: 2; padding-bottom: 24px; }
+    .copy h2, .copy .lede { display: none; }
+    .clock { margin-top: 0; font-size: 34px; }
+    .label { font-size: 0; gap: 0; }
+  }
+</style>

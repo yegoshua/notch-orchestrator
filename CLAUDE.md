@@ -53,4 +53,12 @@ The CI of what a session pushed is followed by the session core (the "Pipelines"
 
 Releases are built by `scripts/release.sh` (archive, Sparkle update feed, installer, Homebrew cask from `packaging/`), signed with the self-signed certificate named in `NOTCH_SIGN_IDENTITY` so that macOS keeps granted permissions across updates; `README.md` has the steps. The app updates itself through Sparkle (`Sources/NotchApp/AppUpdater.swift`), the only dependency, and only when it was built with `scripts/sparkle-public-key` present, so a development build never does. Sparkle is signed without the hardened runtime on purpose: with it a framework that no Apple team signed would not load.
 
-The landing page is `site/`: plain HTML, CSS and JavaScript with no build step, published to GitHub Pages by `.github/workflows/site.yml`. The island at its top is a replica of the app's and takes its colours, sizes and the companion's drawing from `IslandKit.swift` and `Companion.swift`; when those change, `site/styles.css` and `site/main.js` follow by hand. `python3 -m http.server --directory site` serves it locally.
+The landing page is `site/`, an Astro project of its own, published to GitHub Pages by `.github/workflows/site.yml`. Sections are components in `site/src/components`; what the demo shows (the steps of the scene, the mock sessions) is data in `site/src/lib/demo.ts`; what happens after the page loads is `site/src/scripts`. The island at its top is a replica of the app's and takes its colours, sizes and the companion's drawing from `IslandKit.swift` and `Companion.swift`; when those change, `site/src/styles/global.css`, `site/src/lib/marks.ts` and `site/src/scripts/companion.ts` follow by hand.
+
+```bash
+cd site
+npm install
+npm run dev      # http://localhost:4321/notch-orchestrator/
+npm run check    # types
+npm run build    # into site/dist
+```

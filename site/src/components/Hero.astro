@@ -1,0 +1,43 @@
+<section class="hero" id="top">
+  <div class="cone" aria-hidden="true"></div>
+  <div class="copy">
+    <p class="product">Notch Orchestrator</p>
+    <h1>See which session<br />needs you.</h1>
+    <p class="lede">A small macOS app that lives in the MacBook notch and keeps an eye on your Claude Code sessions, in the terminal and in the desktop app alike.</p>
+  </div>
+  <div class="cta">
+    <a class="button" href="#install">Install for Mac</a>
+    <p class="fine">macOS 14 or later · free and open source</p>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative; height: 100svh; min-height: 600px; overflow-x: clip;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
+    padding: 0 var(--gutter) clamp(32px, 6vh, 64px);
+  }
+  .copy { position: relative; }
+  .product { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 14px; }
+  .lede { margin-top: 20px; font-size: clamp(17px, 1.6vw, 21px); }
+  .cta { position: relative; flex: none; text-align: right; display: grid; gap: 12px; justify-items: end; }
+
+  /* Light falling from the notch onto the floor of the page. */
+  .cone {
+    position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(34% 7% at 50% 74%, rgb(255 255 255 / 0.1), transparent 70%),
+      linear-gradient(rgb(255 255 255 / 0.16), transparent 72%);
+    clip-path: polygon(48.5% 0, 51.5% 0, 78% 100%, 22% 100%);
+    -webkit-mask-image: radial-gradient(22% 80% at 50% 0, #000 30%, transparent), radial-gradient(34% 9% at 50% 74%, #000, transparent 70%);
+    mask-image: radial-gradient(22% 80% at 50% 0, #000 30%, transparent), radial-gradient(34% 9% at 50% 74%, #000, transparent 70%);
+    filter: blur(18px);
+    animation: cone 2.4s ease-out both;
+  }
+  @keyframes cone { from { opacity: 0; } }
+
+  @media (max-width: 860px) {
+    .hero { flex-direction: column; align-items: flex-start; justify-content: flex-end; }
+    .cta { text-align: left; justify-items: start; }
+  }
+</style>

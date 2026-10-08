@@ -1,0 +1,19 @@
+---
+// The list of sessions the island opens on, as SessionListView.swift draws it.
+import { SESSIONS } from '../lib/demo';
+import Mark from './Mark.astro';
+---
+<div class="list">
+  {SESSIONS.map(({ kind, group, rows }) => (
+    <div class="group" data-state={kind}>
+      <p class="group-label">{group} <i>{rows.length}</i></p>
+      {rows.map(row => (
+        <div class="row">
+          <Mark kind={kind} />
+          <div class="row-main"><b>{row.title} <small>{row.where}</small></b><span>{row.activity}</span></div>
+          <div class="row-side">{row.flag && <em class:list={{ failed: kind === 'failed' }}>{row.flag}</em>}<span>{row.time}</span></div>
+        </div>
+      ))}
+    </div>
+  ))}
+</div>
