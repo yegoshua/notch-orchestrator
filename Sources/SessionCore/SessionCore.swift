@@ -102,6 +102,9 @@ public struct Snapshot: Equatable, Sendable {
     /// Merge requests that sessions pushed to and that no session in the list shows any more,
     /// by repository and number.
     public var mergeRequests: [FollowedMergeRequest] = []
+    /// How many followed merge requests wait for the user, in a session's row or not: ready to
+    /// merge, failed after the merge, or held at a manual step.
+    public var mergeRequestsNeedingUser = 0
 }
 
 public struct Settings: Equatable, Sendable {
@@ -876,11 +879,13 @@ public struct SessionCore {
             tracked.shown.ci = .noAccess(host: observation.id.remote.host)
             tracked.shown.pipelineURL = nil
             tracked.shown.isReadyToMerge = false
+            tracked.shown.deployments = []
             tracked.settledAt = nil
         case .unknown:
             tracked.shown.ci = .unknown
             tracked.shown.pipelineURL = nil
             tracked.shown.isReadyToMerge = false
+            tracked.shown.deployments = []
         }
         mergeRequests[observation.id] = tracked
     }
@@ -1105,7 +1110,8 @@ public struct SessionCore {
             ),
             requests: queue.map(\.request),
             raised: queue.filter(\.isRaised).map(\.request),
-            mergeRequests: followedMergeRequests.filter { $0.isMerged || !inRows.contains($0.id) }
+            mergeRequests: followedMergeRequests.filter { $0.isMerged || !inRows.contains($0.id) },
+            mergeRequestsNeedingUser: mergeRequests.values.filter(\.shown.needsUser).count
         )
     }
 

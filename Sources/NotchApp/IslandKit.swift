@@ -76,6 +76,8 @@ enum Island {
     /// The companion's height, and the room between it and the counters.
     static let companionSize: CGFloat = 20
     static let companionGap: CGFloat = 8
+    /// Between the usage ring and a mark beside it.
+    static let ringGap: CGFloat = 8
     /// How much further down than the system's safe area a notch is believed to reach.
     static let notchBeyondSafeArea: CGFloat = 6
     static let openPadding: CGFloat = 16
@@ -253,6 +255,8 @@ private struct MarkPath: Shape {
 struct BandRow: View {
     let counters: Counters
     let limit: LimitWindow
+    /// Followed merge requests that wait for the user.
+    var mergeRequestsNeedingUser = 0
     /// Without a connection no figure can arrive, so no ring is drawn.
     var showsRing = true
     /// The open island was told to stay open.
@@ -273,9 +277,28 @@ struct BandRow: View {
                     .transition(.opacity)
                     .accessibilityLabel("Stays open")
             }
+            MergeRequestsMark(count: mergeRequestsNeedingUser).padding(.trailing, showsRing ? Island.ringGap : 0)
             if showsRing { LimitRing(window: limit) }
         }
         .animation(Island.quick, value: isPinned)
+        .animation(Island.quick, value: mergeRequestsNeedingUser > 0)
+    }
+}
+
+/// The one quiet mark for followed merge requests that wait for the user: ready to merge, failed
+/// after the merge, or held at a manual step. It is there while any does and says no more than
+/// that; which and why is in the list.
+struct MergeRequestsMark: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Image(systemName: "arrow.triangle.merge")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Island.text2)
+                .transition(.opacity)
+                .accessibilityLabel(count == 1 ? "A merge request waits for you" : "\(count) merge requests wait for you")
+        }
     }
 }
 

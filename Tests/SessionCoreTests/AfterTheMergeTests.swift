@@ -434,3 +434,122 @@ private func deployed(_ environment: String, _ state: Deployment.State) -> Deplo
         #expect(core.mergeRequestsToAsk(at: heard + 240) == [id])
     }
 }
+
+@Suite struct MergeRequestsThatNeedTheUser {
+    private func open(approved given: Int, mergeable: Bool) -> MergeRequestLookup {
+        .found(MergeRequestStatus(
+            state: .open, title: "Add the funnel events", url: requestURL, branch: "feature",
+            approvals: Approvals(given: given, required: 2), isMergeable: mergeable))
+    }
+
+    private func count(_ core: SessionCore, at time: Date = heard + 1) -> Int {
+        core.snapshot(at: time).mergeRequestsNeedingUser
+    }
+
+    @Test func oneThatOnlyWaitsForReviewDoesNot() {
+        var core = followed()
+
+        observe(&core, open(approved: 1, mergeable: false))
+
+        #expect(count(core) == 0)
+    }
+
+    @Test func oneThatIsReadyToMergeDoesWhetherInASessionsRowOrInTheSection() {
+        let core = followed()
+
+        #expect(core.snapshot(at: t + 60).mergeRequests.isEmpty)
+        #expect(count(core, at: t + 60) == 1)
+        #expect(count(core, at: t + 3_600) == 1)
+    }
+
+    @Test func itNoLongerDoesOnceItStoppedBeingReady() {
+        var core = followed()
+
+        observe(&core, open(approved: 2, mergeable: false))
+
+        #expect(count(core) == 0)
+    }
+
+    @Test(arguments: [
+        merged(failed), merged(held), merged(running, [deployed("staging", .failed)]),
+    ])
+    func oneWhoseMergeFailedOrIsHeldDoes(lookup: MergeRequestLookup) {
+        var core = followed()
+
+        observe(&core, lookup)
+
+        #expect(count(core) == 1)
+    }
+
+    @Test(arguments: [
+        merged(.noPipeline), merged(running, [deployed("staging", .running)]),
+        merged(passed, [deployed("staging", .succeeded), deployed("production", .waiting)]),
+    ])
+    func oneWhoseMergeGoesWellDoesNot(lookup: MergeRequestLookup) {
+        var core = followed()
+
+        observe(&core, lookup)
+
+        #expect(count(core) == 0)
+    }
+
+    @Test func itClearsOnceTheHeldPipelineWasStartedAndWhenTheFailedOneLeft() {
+        var core = followed()
+        observe(&core, merged(held))
+
+        observe(&core, merged(running), at: heard + 300)
+        #expect(count(core, at: heard + 301) == 0)
+
+        observe(&core, merged(failed), at: heard + 600)
+        #expect(count(core, at: heard + 601) == 1)
+        #expect(count(core, at: heard + 600 + 600) == 0)
+    }
+
+    @Test func oneTheUserStoppedFollowingOrThatWasClosedNoLongerCounts() {
+        var removed = followed()
+        removed.stopFollowing(id)
+        var closed = followed()
+        observe(&closed, .found(MergeRequestStatus(state: .closed, url: requestURL)))
+
+        #expect(count(removed) == 0)
+        #expect(count(closed) == 0)
+    }
+
+    @Test(arguments: [Settings(interruptionMode: .quiet), Settings(interruptionMode: .loud)])
+    func itCountsInQuietModeAndUnderFocusToo(settings: Settings) {
+        var core = followed(settings)
+        core.attend(Attention(focusIsOn: settings.interruptionMode == .loud), at: heard - 1)
+
+        observe(&core, merged(failed))
+
+        #expect(core.drainInterruptions().isEmpty)
+        #expect(count(core) == 1)
+    }
+
+    @Test(arguments: [merged(failed), merged(held), merged(running, [deployed("staging", .failed)])])
+    func whatCannotBeConfirmedAnyMoreDoesNotCountUntilItIsSeenAgain(lookup: MergeRequestLookup) {
+        for unread in [MergeRequestLookup.noAccess, .unknown] {
+            var core = followed()
+            observe(&core, lookup)
+            _ = core.drainInterruptions()
+
+            observe(&core, unread, at: heard + 20)
+            #expect(count(core, at: heard + 21) == 0)
+
+            // Back as it was, which is no news.
+            observe(&core, lookup, at: heard + 40)
+            #expect(count(core, at: heard + 41) == 1)
+            #expect(core.drainInterruptions().isEmpty)
+        }
+    }
+
+    @Test func everyOneThatNeedsTheUserIsCounted() {
+        var core = followed()
+        let other = FollowedMergeRequest.ID(remote: remote, number: 13)
+        core.restore([FollowedMergeRequest(remote: remote, number: 13, url: requestURL)])
+
+        core.reconcile(MergeRequestObservation(id: other, lookup: merged(held)), observedAt: heard)
+
+        #expect(count(core) == 2)
+    }
+}

@@ -2,7 +2,8 @@ import SessionCore
 import SwiftUI
 
 /// The island at rest: the companion and counters by state left of the notch and the usage ring
-/// right of it, or both in a top-centre pill on screens without a notch. It reaches only as far
+/// right of it, with a mark beside the ring while a followed merge request waits for the user,
+/// or all of it in a top-centre pill on screens without a notch. It reaches only as far
 /// as what it shows: without a connection nothing is drawn left of the notch. Only the companion
 /// moves while sessions simply work.
 struct CollapsedView: View {
@@ -12,6 +13,9 @@ struct CollapsedView: View {
 
     private var counters: Counters { model.snapshot.counters }
     private var showsRing: Bool { model.connectionStatus != .notConnected }
+    private var requestsNeedingUser: Int { model.snapshot.mergeRequestsNeedingUser }
+    /// The mark alone does not bring the island up: it comes with what is there anyway.
+    private var showsRight: Bool { showsRing || (hasSessions && requestsNeedingUser > 0) }
 
     private var hasSessions: Bool {
         counters.waiting + counters.failed + counters.working + counters.finished > 0
@@ -30,7 +34,7 @@ struct CollapsedView: View {
 
     /// What lies between the two sides: the notch, or the gap of the pill.
     private var middle: CGFloat {
-        geometry.hasNotch ? geometry.notchWidth : (showsLeft && showsRing ? Island.pillGap : 0)
+        geometry.hasNotch ? geometry.notchWidth : (showsLeft && showsRight ? Island.pillGap : 0)
     }
 
     var body: some View {
@@ -47,10 +51,13 @@ struct CollapsedView: View {
             }
             Color.clear.frame(width: middle)
                 .alignmentGuide(.notchCentre) { $0[HorizontalAlignment.center] }
-            if showsRing {
-                LimitRing(window: model.limits.fiveHour)
-                    .padding(.leading, gap)
-                    .padding(.trailing, edge)
+            if showsRight {
+                HStack(spacing: Island.ringGap) {
+                    MergeRequestsMark(count: requestsNeedingUser)
+                    if showsRing { LimitRing(window: model.limits.fiveHour) }
+                }
+                .padding(.leading, gap)
+                .padding(.trailing, edge)
             }
         }
         .frame(maxHeight: .infinity)
@@ -70,6 +77,7 @@ struct CollapsedView: View {
         .opacity(isVisible && !presence.isOpen ? 1 : 0)
         .animation(Island.quick, value: isVisible)
         .animation(Island.settle, value: counters)
+        .animation(Island.quick, value: requestsNeedingUser > 0)
     }
 }
 

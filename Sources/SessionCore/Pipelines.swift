@@ -362,6 +362,13 @@ public struct FollowedMergeRequest: Equatable, Sendable, Codable, Identifiable {
 
     public var isMerged: Bool { mergedAt != nil }
 
+    /// Whether it waits for the user: it can be merged, or what its merge set off failed or is
+    /// held at a step somebody has to start by hand.
+    public var needsUser: Bool {
+        guard isMerged else { return isReadyToMerge }
+        return ci == .failed || ci == .held || deployments.contains { $0.state == .failed }
+    }
+
     /// It as it is kept across a restart: without how it stands.
     public var stored: FollowedMergeRequest {
         var stored = self

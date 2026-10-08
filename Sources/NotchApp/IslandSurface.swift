@@ -108,6 +108,7 @@ struct IslandSurface<Content: View>: View {
             VStack(spacing: 0) {
                 BandRow(
                     counters: model.snapshot.counters, limit: model.limits.fiveHour,
+                    mergeRequestsNeedingUser: model.snapshot.mergeRequestsNeedingUser,
                     showsRing: model.connectionStatus != .notConnected, isPinned: stage.isPinned)
                     .padding(.horizontal, isWide ? outline / 2 + Island.openPadding : geometry.collapsedEdge)
                     .frame(height: bandHeight)
