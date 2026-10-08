@@ -7,9 +7,11 @@ import SessionCore
 final class StatusMenuController: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let model: AppModel
+    private let updater: AppUpdater
 
-    init(model: AppModel) {
+    init(model: AppModel, updater: AppUpdater) {
         self.model = model
+        self.updater = updater
         super.init()
         item.button?.image = NSImage(systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: "Notch Orchestrator")
         let menu = NSMenu()
@@ -48,6 +50,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         addScreens(to: menu)
         addLoginItem(to: menu)
         menu.addItem(.separator())
+        if let version = updater.version {
+            menu.addItem(withTitle: "Version \(version)", action: nil, keyEquivalent: "").isEnabled = false
+        }
+        if updater.isAvailable { add("Check for Updates…", #selector(checkForUpdates), to: menu) }
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
@@ -173,6 +179,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
     }
+
+    @objc private func checkForUpdates() { updater.checkForUpdates() }
 
     @objc private func toggleLoginItem() {
         let service = SMAppService.mainApp

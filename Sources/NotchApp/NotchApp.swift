@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var requestCard: RequestCardController?
     private var transientLine: TransientLineController?
     private var menu: StatusMenuController?
+    private var updater: AppUpdater?
 
     static func main() {
         let app = NSApplication.shared
@@ -25,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         expandedPanel = ExpandedPanelController(model: model, presence: presence)
         requestCard = RequestCardController(model: model, presence: presence)
         transientLine = TransientLineController(model: model, presence: presence)
-        menu = StatusMenuController(model: model)
+        let updater = AppUpdater()
+        self.updater = updater
+        menu = StatusMenuController(model: model, updater: updater)
     }
 }
