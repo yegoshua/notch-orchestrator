@@ -78,6 +78,10 @@ enum ProcessHost {
                 if bundleID == terminalBundleID, let tty = terminalDevice(of: process) {
                     return .terminalApp(tty: tty)
                 }
+                if bundleID.hasPrefix(SessionLocation.warpBundleIDPrefix),
+                   let link = SessionLocation.warpLink(environment(of: pid)[SessionLocation.warpLinkVariable]) {
+                    return .warp(bundleID: bundleID, link: link)
+                }
                 // The integrated terminal hangs off a helper whose identifier extends the app's.
                 if let code = vsCodeBundleIDs.first(where: { bundleID == $0 || bundleID.hasPrefix($0 + ".") }) {
                     return .vsCode(bundleID: code)
@@ -96,6 +100,17 @@ enum ProcessHost {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
+    }
+
+    /// What the process was started with, which is what its shell had exported. Empty when the
+    /// system does not tell, as of a process of another user.
+    private static func environment(of pid: pid_t) -> [String: String] {
+        var name = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&name, UInt32(name.count), nil, &size, nil, 0) == 0, size > 0 else { return [:] }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard sysctl(&name, UInt32(name.count), &bytes, &size, nil, 0) == 0 else { return [:] }
+        return ProcessArguments.environment(in: Array(bytes.prefix(size)))
     }
 
     /// The controlling terminal, the way Terminal.app names the device of a tab.
@@ -127,6 +142,13 @@ enum SessionJump {
             // The app may turn the link down without a sign (signed out, links disabled), so it
             // is brought forward regardless: the click is never a dead end.
             activate(claudeDesktopBundleID)
+        case .warp(let bundleID, let link):
+            // Warp shows the pane and comes forward itself. A pane that is gone, or a Warp from
+            // before the link existed, still comes forward for having been handed it.
+            guard let url = URL(string: link), let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+                return activate(bundleID)
+            }
+            NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
         case .vsCode(let bundleID):
             // Opening the folder brings forward the window that already has it open.
             guard let cwd, let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {

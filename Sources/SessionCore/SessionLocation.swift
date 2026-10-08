@@ -11,6 +11,8 @@ public enum SessionLocation: Equatable, Sendable {
     case desktopApp(sessionID: String)
     /// A tab of Terminal.app, known by its terminal device.
     case terminalApp(tty: String)
+    /// A pane of Warp, known by the link Warp gave its shell to come back to it.
+    case warp(bundleID: String, link: String)
     /// The integrated terminal of VS Code. Which of its terminals cannot be told from outside.
     case vsCode(bundleID: String)
     /// Some other application the session's process descends from, usually another terminal.
@@ -19,13 +21,25 @@ public enum SessionLocation: Equatable, Sendable {
 
     public static let terminalBundleID = "com.apple.Terminal"
     public static let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
+    /// What the identifier of every build of Warp starts with: stable, preview, open source.
+    public static let warpBundleIDPrefix = "dev.warp.Warp"
+    /// The variable Warp puts the link to a pane in, for whatever runs in that pane. Since May 2026.
+    public static let warpLinkVariable = "WARP_FOCUS_URL"
+
+    /// The link to a pane as Warp writes it, `warp://session/<32 hex digits>` with the scheme
+    /// of the build. Nil for anything else: the value comes from a process's environment and
+    /// is later opened.
+    public static func warpLink(_ value: String?) -> String? {
+        guard let value, value.wholeMatch(of: #/warp[a-z]{0,16}://session/[0-9A-Fa-f]{32}/#) != nil else { return nil }
+        return value
+    }
 
     /// The application whose window shows the session.
     public var bundleID: String? {
         switch self {
         case .desktopApp: Self.claudeDesktopBundleID
         case .terminalApp: Self.terminalBundleID
-        case .vsCode(let bundleID), .application(_, let bundleID): bundleID
+        case .warp(let bundleID, _), .vsCode(let bundleID), .application(_, let bundleID): bundleID
         case .unknown: nil
         }
     }
@@ -40,7 +54,7 @@ public enum SessionLocation: Equatable, Sendable {
         switch self {
         case .desktopApp: "Desktop"
         case .vsCode: "VS Code"
-        case .terminalApp, .application, .unknown: "CLI"
+        case .terminalApp, .warp, .application, .unknown: "CLI"
         }
     }
 
@@ -49,6 +63,7 @@ public enum SessionLocation: Equatable, Sendable {
         switch self {
         case .desktopApp: "Desktop app"
         case .terminalApp: "Terminal (CLI)"
+        case .warp: "Warp (CLI)"
         case .vsCode: "VS Code (CLI)"
         case .application(let name, _): "\(name) (CLI)"
         case .unknown: "CLI"
@@ -62,6 +77,10 @@ public enum SessionLocation: Equatable, Sendable {
             JumpTarget(
                 label: "Open terminal tab", precision: .exact, reach: "exact tab",
                 explanation: "Brings Terminal forward on the exact tab this session runs in")
+        case .warp:
+            JumpTarget(
+                label: "Open Warp pane", precision: .exact, reach: "exact pane",
+                explanation: "Brings Warp forward on the exact pane this session runs in")
         case .desktopApp:
             JumpTarget(
                 label: "Open in Claude", precision: .exact, reach: "this session, else the app",
@@ -83,7 +102,7 @@ public enum SessionLocation: Equatable, Sendable {
 /// What a click on a session does, to be said before the click.
 public struct JumpTarget: Equatable, Sendable {
     public enum Precision: Equatable, Sendable {
-        /// The session itself: its tab, or the session inside the desktop app.
+        /// The session itself: its tab or pane, or the session inside the desktop app.
         case exact
         /// The window of the session's project.
         case window
