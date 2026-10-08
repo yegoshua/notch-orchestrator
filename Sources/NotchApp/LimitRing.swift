@@ -135,6 +135,21 @@ enum LimitText {
         }
     }
 
+    /// The same for the menu, which is as wide as its longest line: the figure, when the window
+    /// resets, and its age only when that makes it doubtful.
+    static func menuLine(_ name: String, _ window: LimitWindow, now: Date) -> String {
+        switch window {
+        case .noData:
+            return "\(name): no data yet"
+        case .reset:
+            return "\(name): reset, no data yet"
+        case .known(let reading):
+            let resets = reading.resetsAt.map { " \u{00B7} resets \(time($0, now: now))" } ?? ""
+            let age = reading.isStale ? " \u{00B7} \(shortAge(reading.age)) old" : ""
+            return "\(name): \(percent(reading.usedPercentage))%\(resets)\(age)"
+        }
+    }
+
     /// Why there is no number, for the place that has room to say it.
     static let noDataExplanation =
         "Limits appear after the first response in a Claude Code session, or once the Claude desktop app has measured them"

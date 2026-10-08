@@ -24,8 +24,10 @@ if [ -s scripts/sparkle-public-key ]; then
 fi
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
 cp "$PRODUCTS/NotchApp" "$APP/Contents/MacOS/NotchApp"
+# Drawn by scripts/make-icon.sh.
+cp packaging/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # ditto keeps the framework's symbolic links; cp -R would not on every system.
 ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -34,6 +36,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key><string>NotchApp</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>dev.notch-orchestrator.app</string>
     <key>CFBundleName</key><string>Notch Orchestrator</string>
     <key>CFBundlePackageType</key><string>APPL</string>

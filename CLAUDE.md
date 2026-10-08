@@ -43,6 +43,8 @@ Colours, sizes, radii and springs of the island live in `Sources/NotchApp/Island
 
 The settings window is `Sources/NotchApp/SettingsWindow.swift`: an ordinary window with the tabs General, Interruptions, Connection and GitLab, after screen 6 of the same design; the menu bar item only shows the state and opens it. `-openSettings GitLab` opens it on a tab at launch, for a check by hand. The GitLab tab is the setup of the CI integration: it asks `glab auth status` for gitlab.com, the hosts the user named and those sessions pushed to (`GitHost.access`), and gives the commands that are still to be run. It opens by itself, once, the first time a GitLab cannot be asked about a push.
 
+The app icon and the menu bar glyph are the "Keycap" of the "Notch Island Icons" design. The icon is drawn by `scripts/make-icon.swift` into `packaging/AppIcon.icns`, which is kept in the repository and copied into the bundle by `scripts/build-app.sh`; `scripts/make-icon.sh` draws it anew. The glyph is drawn in `Sources/NotchApp/StatusMenu.swift` and follows the state: idle, working, waiting (the amber mark), not connected. The landing page's favicon is the same icon, inline in `site/src/layouts/Base.astro`.
+
 The companion, the small orange character at the left end of the band, is `Sources/NotchApp/Companion.swift`: drawn in a canvas and driven by the clock, with one mood for all sessions (waiting, then failed, working, finished, asleep). It is the one deliberate exception to the design's rule against motion while sessions simply work.
 
 A permission request the user ignores goes back to Claude Code's own dialog after five minutes. `-requestTimeoutSeconds 20` shortens that for a check by hand.
