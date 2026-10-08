@@ -412,7 +412,7 @@ private func gitLabApprovals(by names: [String], required: Int) -> String {
 
     @Test(arguments: [
         "not_approved", "ci_must_pass", "ci_still_running", "discussions_not_resolved", "conflict", "draft_status",
-        "need_rebase", "checking", "unchecked", "requested_changes", "something_new",
+        "need_rebase", "requested_changes", "something_new",
     ])
     func whateverElseTheHostSaysIsNotMergeable(mergeStatus: String) {
         let read = status([
@@ -421,6 +421,16 @@ private func gitLabApprovals(by names: [String], required: Int) -> String {
         ])
 
         #expect(read?.isMergeable == false)
+    }
+
+    @Test(arguments: ["checking", "unchecked", "preparing", "approvals_syncing"])
+    func aHostThatIsStillWorkingItOutHasNotSaid(mergeStatus: String) {
+        let read = status([
+            "/approvals": ok(gitLabApprovals(by: ["olha", "taras"], required: 2)),
+            "merge_requests/12": ok(gitLabMergeRequest(headPipeline: nil, mergeStatus: mergeStatus)),
+        ])
+
+        #expect(read?.isMergeable == nil)
     }
 
     @Test func aMergeRequestThatDoesNotSayIsNeitherMergeableNorNot() {

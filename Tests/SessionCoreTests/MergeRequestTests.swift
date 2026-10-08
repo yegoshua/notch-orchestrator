@@ -413,6 +413,29 @@ private func followed() -> SessionCore {
         #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
     }
 
+    @Test func aRequestThatWasReadyIsNotShownReadyOnAnAnswerThatCannotBeRead() {
+        for answer in [MergeRequestLookup.unknown, .noAccess, open(approved: 2, mergeable: nil)] {
+            var core = followed()
+            observe(&core, open(approved: 2, mergeable: true))
+
+            observe(&core, answer, at: t + 300)
+
+            #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
+        }
+    }
+
+    @Test func approvalsTheHostWouldNotTellMakeNothingReady() {
+        var core = followed()
+        observe(&core, open(approved: 1, of: 0, mergeable: false))
+        _ = core.drainInterruptions()
+
+        // The one approval may have been withdrawn since: the count shown is the last known.
+        observe(&core, open(mergeable: true), at: t + 300)
+
+        #expect(lines(&core).isEmpty)
+        #expect(core.snapshot(at: later).mergeRequests.first?.isReadyToMerge == false)
+    }
+
     @Test func oneAnswerThatCannotBeReadDoesNotMakeItNewsAgain() {
         var core = followed()
         observe(&core, open(approved: 2, mergeable: true))

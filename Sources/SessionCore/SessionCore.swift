@@ -821,7 +821,8 @@ public struct SessionCore {
             }
             tracked.shown.title = status.title ?? tracked.shown.title
             tracked.shown.approvals = status.approvals ?? tracked.shown.approvals
-            let isReady = status.isMergeable == true && (tracked.shown.approvals?.given ?? 0) > 0
+            // Ready only by what the host said this time: a count last known is not an approval.
+            let isReady = status.isMergeable == true && (status.approvals?.given ?? 0) > 0
             if isReady, !tracked.shown.wasAnnouncedReady {
                 tracked.shown.wasAnnouncedReady = true
                 announce(.readyToMerge, of: tracked.shown)
@@ -829,8 +830,7 @@ public struct SessionCore {
                 // Seen not to be ready: the next time it is, that is news again.
                 tracked.shown.wasAnnouncedReady = false
             }
-            // What the host did not say this time stays as it was last known.
-            if status.isMergeable != nil { tracked.shown.isReadyToMerge = isReady }
+            tracked.shown.isReadyToMerge = isReady
             tracked.shown.url = status.url
             tracked.shown.branch = status.branch ?? tracked.shown.branch
             tracked.shown.pipelineURL = nil
@@ -852,9 +852,11 @@ public struct SessionCore {
         case .noAccess:
             tracked.shown.ci = .noAccess(host: observation.id.remote.host)
             tracked.shown.pipelineURL = nil
+            tracked.shown.isReadyToMerge = false
         case .unknown:
             tracked.shown.ci = .unknown
             tracked.shown.pipelineURL = nil
+            tracked.shown.isReadyToMerge = false
         }
         mergeRequests[observation.id] = tracked
     }

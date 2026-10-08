@@ -408,17 +408,21 @@ private extension SessionCI {
     }
 }
 
-/// How a merge request stands with its reviewers: ready to merge, else how many approved of how
-/// many the project asks for. Nothing where nobody approved and nobody has to.
+/// How a merge request stands with its reviewers: how many approved of how many the project asks
+/// for, and whether it is ready to merge. Nothing where nobody approved and nobody has to.
 private struct ApprovalsMark: View {
     let approvals: Approvals?
     let isReady: Bool
 
-    private var text: String? {
-        if isReady { return "Ready to merge" }
+    private var count: String? {
         guard let approvals, approvals.given > 0 || approvals.required > 0 else { return nil }
         if approvals.required > 0 { return "\(approvals.given)/\(approvals.required) approvals" }
         return approvals.given == 1 ? "1 approval" : "\(approvals.given) approvals"
+    }
+
+    private var text: String? {
+        guard isReady else { return count }
+        return count.map { "\($0) · ready to merge" } ?? "Ready to merge"
     }
 
     var body: some View {
