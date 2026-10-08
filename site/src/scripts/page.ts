@@ -1,8 +1,10 @@
 // What the page does once it has loaded: the island follows the scroll, answers and opens.
 import { ABOVE_SCENE, ANSWERED, BELOW_SCENE, LEGEND, REPOSITORY, STEPS, type TransientLine } from '../lib/demo';
-import { markSvg, type StateKind } from '../lib/marks';
-import { Companion, moodOf } from './companion';
+import { COLOR, markSvg, type StateKind } from '../lib/marks';
+import { Companion, MOOD_LABEL, moodOf } from './companion';
+import { startDust } from './dust';
 import { Island, type Panel } from './island';
+import { startMotion } from './motion';
 
 const $ = <T extends HTMLElement>(selector: string, root: ParentNode = document) => root.querySelector<T>(selector)!;
 const $$ = <T extends HTMLElement>(selector: string, root: ParentNode = document) => [...root.querySelectorAll<T>(selector)];
@@ -51,7 +53,11 @@ function scene() {
     island.set({ counters, ring: band.ring });
 
     if (step) {
-      stage.setMood(moodOf(counters));
+      const mood = moodOf(counters);
+      stage.setMood(mood);
+      $('#scene-mood').textContent = MOOD_LABEL[mood];
+      // The state lights the scene from the notch; with nothing running the light is off.
+      section.style.setProperty('--glow-color', mood === 'asleep' ? 'transparent' : COLOR[mood]);
       $('#scene-clock').textContent = step.clock;
       $('#scene-state').textContent = step.state;
       $('#scene-state').style.setProperty('--state', step.color ?? '');
@@ -144,6 +150,7 @@ function legend() {
   function render() {
     const entry = LEGEND.find(entry => entry.kind === state)!;
     preview.set({ counters: entry.counters, ring });
+    $('#screen').style.setProperty('--glow-color', COLOR[state]);
     $('.list', preview.content).dataset.focus = state;
     $('#read-caption').textContent = entry.caption;
     for (const button of $$('#state-options button')) button.setAttribute('aria-pressed', String(button.dataset.state === state));
@@ -165,7 +172,17 @@ function legend() {
   render();
 }
 
+/** The hero: the companion in the light of the notch, waving. */
+function hero() {
+  const size = () => (innerWidth <= STAGE_SIZE.breakpoint ? 84 : 132);
+  const companion = new Companion($<HTMLCanvasElement>('#hero-companion'), size());
+  addEventListener('resize', () => companion.resize(size()));
+  companion.setMood('waiting');
+  startDust($<HTMLCanvasElement>('#hero-dust'));
+}
+
 function install() {
+  new Companion($<HTMLCanvasElement>('#install-companion'), 72).setMood('finished');
   const copy = $('#copy'), command = $('#install-command');
   copy.addEventListener('click', async () => {
     try {
@@ -188,6 +205,8 @@ function install() {
     .catch(() => {});
 }
 
+startMotion();
+hero();
 scene();
 legend();
 install();

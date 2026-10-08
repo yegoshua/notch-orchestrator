@@ -1,19 +1,19 @@
 <section class="block" id="how">
-  <header class="block-head">
+  <header class="block-head" data-reveal>
     <h2>How it knows.</h2>
   </header>
   <div class="columns">
-    <article>
+    <article class="glass" data-reveal>
       <h3>Hooks, then a second look</h3>
       <p>On first launch the app adds its hooks to <code>~/.claude/settings.json</code>, keeps a backup of the file, and wraps your status line so that usage limits reach it. What the hooks say is checked against the session's process and transcript, and what cannot be confirmed shows as unknown.</p>
     </article>
-    <article>
+    <article class="glass" data-reveal>
       <h3>Nothing leaves your Mac</h3>
       <p>No telemetry and no backend. The app holds no tokens. All that goes out is its own check for a newer release, and what <code>gh</code> and <code>glab</code> ask your git host about a pipeline.</p>
     </article>
   </div>
 
-  <div class="limits">
+  <div class="limits" data-reveal>
     <h3>What it does not do</h3>
     <ul>
       <li>Sessions started before the app was installed do not report to it until they are restarted.</li>

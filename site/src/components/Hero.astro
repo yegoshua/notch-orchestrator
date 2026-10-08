@@ -1,5 +1,33 @@
-<section class="hero" id="top">
-  <div class="cone" aria-hidden="true"></div>
+---
+// The hero: the island at the top of the page throws its light on the companion, and the
+// sessions it watches hang in the dark around it.
+import { REPOSITORY } from '../lib/demo';
+import GhostWindow from './GhostWindow.astro';
+---
+<section class="hero" id="top" data-parallax data-pointer>
+  <header>
+    <a href="#top" class="wordmark"><svg viewBox="0 0 22 14" aria-hidden="true"><path d="M1 1h20M5.5 1v4.5a3.5 3.5 0 0 0 3.5 3.5h4a3.5 3.5 0 0 0 3.5-3.5V1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Notch Orchestrator</a>
+    <a href={`https://github.com/${REPOSITORY}`}>GitHub</a>
+  </header>
+
+  <div class="depth" aria-hidden="true">
+    <GhostWindow title="cashier-lite" kind="working" x={5} y={15} width={300} depth={0.45} />
+    <GhostWindow title="frontoffice" kind="working" x={24} y={33} width={230} depth={0.12} wideOnly />
+    <GhostWindow title="payments-api" kind="waiting" x={66} y={13} width={330} depth={0.9} />
+    <GhostWindow title="docs" kind="finished" x={80} y={47} width={250} depth={0.3} wideOnly />
+    <GhostWindow title="sandbox" kind="working" x={57} y={38} width={210} depth={0.05} wideOnly />
+  </div>
+
+  <div class="beam layer" style="--speed: 60"></div>
+  <canvas class="dust" id="hero-dust"></canvas>
+  <div class="spot layer" style="--speed: 30; --reach: 10">
+    <div class="drift">
+      <canvas id="hero-companion" role="img"></canvas>
+      <div class="floor"></div>
+    </div>
+  </div>
+  <div class="veil"></div>
+
   <div class="copy">
     <p class="product">Notch Orchestrator</p>
     <h1>See which session<br />needs you.</h1>
@@ -13,31 +41,60 @@
 
 <style>
   .hero {
-    position: relative; height: 100svh; min-height: 600px; overflow-x: clip;
+    position: relative; height: 100svh; min-height: 640px; overflow: clip;
     display: flex; align-items: flex-end; justify-content: space-between; gap: 32px;
     padding: 0 var(--gutter) clamp(32px, 6vh, 64px);
+    background: radial-gradient(70% 55% at 50% 0, #14110b, transparent 70%);
   }
-  .copy { position: relative; }
-  .product { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 14px; }
-  .lede { margin-top: 20px; font-size: clamp(17px, 1.6vw, 21px); }
-  .cta { position: relative; flex: none; text-align: right; display: grid; gap: 12px; justify-items: end; }
 
-  /* Light falling from the notch onto the floor of the page. */
-  .cone {
+  header {
+    position: absolute; inset: 0 var(--gutter) auto; height: 44px; z-index: 5;
+    display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--text2);
+  }
+  header a { text-decoration: none; }
+  .wordmark { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; }
+  .wordmark svg { width: 22px; height: 14px; }
+
+  .depth { position: absolute; inset: 0; }
+
+  /* Light falling from the notch onto the floor under the companion. */
+  .beam {
+    position: absolute; inset: 0 0 auto; height: 58%; pointer-events: none;
+    background: linear-gradient(rgb(255 236 200 / 0.2), rgb(255 236 200 / 0.03) 80%, transparent);
+    clip-path: polygon(48.8% 0, 51.2% 0, 66% 100%, 34% 100%);
+    filter: blur(20px);
+    animation: appear 2.4s ease-out both;
+  }
+  .dust { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .spot { position: absolute; left: 50%; top: 48%; width: 0; height: 0; animation: appear 1.6s 0.3s ease-out both; }
+  .spot canvas { position: absolute; left: 0; bottom: -6px; translate: -50% 0; }
+  .floor {
+    position: absolute; left: 0; top: 0; width: min(560px, 90vw); height: 90px; translate: -50% -50%;
+    background: radial-gradient(closest-side, rgb(255 226 180 / 0.2), rgb(255 226 180 / 0.06) 55%, transparent);
+    z-index: -1;
+  }
+  @keyframes appear { from { opacity: 0; } }
+
+  /* The dark the copy stands on. */
+  .veil {
     position: absolute; inset: 0; pointer-events: none;
     background:
-      radial-gradient(34% 7% at 50% 74%, rgb(255 255 255 / 0.1), transparent 70%),
-      linear-gradient(rgb(255 255 255 / 0.16), transparent 72%);
-    clip-path: polygon(48.5% 0, 51.5% 0, 78% 100%, 22% 100%);
-    -webkit-mask-image: radial-gradient(22% 80% at 50% 0, #000 30%, transparent), radial-gradient(34% 9% at 50% 74%, #000, transparent 70%);
-    mask-image: radial-gradient(22% 80% at 50% 0, #000 30%, transparent), radial-gradient(34% 9% at 50% 74%, #000, transparent 70%);
-    filter: blur(18px);
-    animation: cone 2.4s ease-out both;
+      linear-gradient(to top, #000 4%, rgb(0 0 0 / 0.82) 26%, transparent 56%),
+      linear-gradient(to right, rgb(0 0 0 / 0.6), transparent 45%);
   }
-  @keyframes cone { from { opacity: 0; } }
 
+  .copy, .cta { position: relative; z-index: 4; }
+  .product { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 14px; }
+  .lede { margin-top: 20px; font-size: clamp(17px, 1.6vw, 21px); }
+  .cta { flex: none; text-align: right; display: grid; gap: 12px; justify-items: end; }
+
+  @media (max-width: 1000px) {
+    header { display: none; }
+  }
   @media (max-width: 860px) {
     .hero { flex-direction: column; align-items: flex-start; justify-content: flex-end; }
     .cta { text-align: left; justify-items: start; }
+    .spot { top: 40%; }
+    .beam { height: 50%; clip-path: polygon(47% 0, 53% 0, 88% 100%, 12% 100%); }
   }
 </style>

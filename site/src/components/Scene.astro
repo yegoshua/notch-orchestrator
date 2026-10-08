@@ -6,6 +6,7 @@ import Mark from './Mark.astro';
 ---
 <section class="scene" id="scene" aria-label="The states of the island" style={`--stops: ${STEPS.length}`}>
   <div class="pin">
+    <div class="glow" aria-hidden="true"></div>
     <div class="copy">
       <h2>One afternoon,<br />five states.</h2>
       <p class="lede">The island at the top of this page is a replica of the app's, at its real size. Scroll, and it goes from sleep to work that is done.</p>
@@ -15,6 +16,8 @@ import Mark from './Mark.astro';
     </div>
     <div class="stage" aria-hidden="true">
       <canvas id="scene-companion"></canvas>
+      <div class="floor"></div>
+      <p class="mood" id="scene-mood"></p>
     </div>
     <ol class="steps" id="steps">
       {STEPS.map(step => (
@@ -27,7 +30,11 @@ import Mark from './Mark.astro';
 </section>
 
 <style>
-  .scene { height: calc(var(--stops) * 100vh); position: relative; }
+  .scene { height: calc(var(--stops) * 100vh); position: relative; transition: --glow-color 0.7s; }
+  .glow {
+    position: absolute; inset: 0 0 auto; height: 70%; pointer-events: none;
+    background: radial-gradient(42% 52% at 50% 0, color-mix(in srgb, var(--glow-color) 30%, transparent), transparent 70%);
+  }
   .pin {
     position: sticky; top: 0; height: 100svh; min-height: 560px; overflow: hidden;
     display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr auto;
@@ -39,8 +46,13 @@ import Mark from './Mark.astro';
   .state { margin-top: 16px; font-weight: 600; color: var(--state, var(--text)); transition: color 0.3s; }
   .detail { margin-top: 6px; color: var(--text2); font-size: 16px; max-width: 28em; min-height: 4.5em; }
 
-  .stage { display: grid; place-items: center; align-self: end; padding-bottom: 56px; }
-  .stage canvas { filter: drop-shadow(0 30px 40px rgb(0 0 0 / 0.6)); }
+  .stage { position: relative; display: grid; justify-items: center; align-self: end; padding-bottom: 40px; }
+  .stage canvas { position: relative; z-index: 1; }
+  .floor {
+    width: min(420px, 80vw); height: 70px; margin-top: -44px;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--glow-color) 34%, rgb(255 255 255 / 0.07)), transparent);
+  }
+  .mood { margin-top: 2px; font: 12px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text3); }
 
   .steps { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(var(--stops), 1fr); gap: 6px; }
   .steps button { display: grid; gap: 10px; width: 100%; padding: 8px 0 4px; text-align: left; color: var(--text3); font-size: 13px; }
@@ -51,7 +63,7 @@ import Mark from './Mark.astro';
 
   @media (max-width: 860px) {
     .pin { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; }
-    .stage { grid-row: 1; padding-bottom: 24px; }
+    .stage { grid-row: 1; padding-bottom: 12px; }
     .copy { grid-row: 2; padding-bottom: 24px; }
     .copy h2, .copy .lede { display: none; }
     .clock { margin-top: 0; font-size: 34px; }

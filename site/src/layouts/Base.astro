@@ -20,6 +20,7 @@ const icon = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect 
     <meta property="og:description" content="See which Claude Code session needs you, and answer it from the notch." />
     <meta property="og:type" content="website" />
     <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+    <script is:inline>document.documentElement.classList.add('js');</script>
     <link rel="icon" href={`data:image/svg+xml,${encodeURIComponent(icon)}`} />
   </head>
   <body>

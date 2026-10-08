@@ -2,17 +2,18 @@
 import { INSTALL_COMMAND } from '../lib/demo';
 ---
 <section class="block install" id="install">
-  <header class="block-head">
+  <div class="spot" aria-hidden="true"><canvas id="install-companion"></canvas><div class="floor"></div></div>
+  <header class="block-head" data-reveal>
     <h2>Try it on your Mac.</h2>
     <p class="lede">Paste this into a terminal.</p>
   </header>
-  <div class="command">
+  <div class="command" data-reveal>
     <code id="install-command">{INSTALL_COMMAND}</code>
     <button type="button" class="button" id="copy">Copy</button>
   </div>
   <p class="fine" id="release">macOS 14 or later · MIT</p>
 
-  <ol class="steps">
+  <ol class="steps" data-reveal>
     <li><span>1</span><p>The installer downloads the latest release, puts the app into Applications and starts it. macOS accepts an app that <code>curl</code> downloaded, and refuses the same one from a browser, which is why this is the way in.</p></li>
     <li><span>2</span><p>The app connects itself to Claude Code. Restart the sessions that were already running.</p></li>
     <li><span>3</span><p>macOS asks to automate Terminal when that is first needed: to jump to a session's tab and to tell whether the tab is in front. "Start at Login" is in the menu bar menu.</p></li>
@@ -23,6 +24,8 @@ import { INSTALL_COMMAND } from '../lib/demo';
 
 <style>
   .install { text-align: center; }
+  .spot { display: grid; justify-items: center; margin-bottom: 28px; }
+  .floor { width: min(360px, 80vw); height: 56px; margin-top: -32px; background: radial-gradient(closest-side, rgb(127 183 154 / 0.28), transparent); }
   .block-head { margin-bottom: 28px; }
   .command {
     display: flex; align-items: center; gap: 12px; max-width: 880px; margin: 0 auto 14px; padding: 10px 10px 10px 22px;

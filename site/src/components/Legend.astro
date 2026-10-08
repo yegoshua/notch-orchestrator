@@ -6,16 +6,18 @@ import Mark from './Mark.astro';
 import SessionList from './SessionList.astro';
 ---
 <section class="block" id="read">
-  <header class="block-head">
+  <header class="block-head" data-reveal>
     <h2>How to read the island.</h2>
     <p class="lede">Every state has its own colour and its own shape, so it never rests on colour alone. Counters are numbers beside a mark, not one dot per session.</p>
   </header>
   <div class="read">
-    <div class="screen">
-      <Island id="preview" placement="static" label="The open island with a list of sessions"><SessionList /></Island>
-      <p class="caption" id="read-caption" aria-live="polite"></p>
+    <div class="device" data-reveal>
+      <div class="screen" id="screen">
+        <Island id="preview" placement="static" label="The open island with a list of sessions"><SessionList /></Island>
+        <p class="caption" id="read-caption" aria-live="polite"></p>
+      </div>
     </div>
-    <div class="controls">
+    <div class="controls" data-reveal>
       <h3 id="state-label">State</h3>
       <div class="options" id="state-options" role="group" aria-labelledby="state-label">
         {LEGEND.map(entry => (
@@ -33,13 +35,16 @@ import SessionList from './SessionList.astro';
 
 <style>
   .read { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: 40px; align-items: start; }
+  .device { min-width: 0; padding: 7px; border-radius: 34px; background: linear-gradient(#26282d, #111215 60%); box-shadow: 0 60px 120px -50px #000; }
   .screen {
-    display: flex; flex-direction: column; justify-content: space-between; gap: 28px; min-height: 520px;
-    border: 1px solid #2a2a2a; border-top: 0; border-radius: 0 0 28px 28px;
-    background: linear-gradient(165deg, #232a3b, #1a1624 50%, #0d0d10);
-    overflow: hidden;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 28px; min-height: 540px;
+    border-radius: 27px; overflow: hidden; transition: --glow-color 0.6s;
+    background:
+      radial-gradient(80% 95% at 50% 0, color-mix(in srgb, var(--glow-color) 40%, transparent), color-mix(in srgb, var(--glow-color) 10%, transparent) 45%, transparent 80%),
+      linear-gradient(155deg, rgb(255 255 255 / 0.035), transparent 38%),
+      radial-gradient(120% 90% at 78% 115%, #1b2b4d, transparent 55%), #08090c;
   }
-  .caption { padding: 0 24px 24px; text-align: center; text-wrap: balance; color: var(--text2); font-size: 15px; }
+  .caption { padding: 0 24px 26px; text-align: center; text-wrap: balance; color: var(--text); font-size: 15px; }
 
   .controls { display: grid; gap: 14px; }
   .controls h3 { margin-top: 10px; }
