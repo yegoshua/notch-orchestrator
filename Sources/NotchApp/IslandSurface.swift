@@ -15,6 +15,28 @@ final class IslandPresence: ObservableObject {
     var isOpen: Bool { listIsOpen || cardIsOpen || lineIsOpen }
 }
 
+/// The window of an island that opens below the notch: the list, the request card, the line.
+@MainActor
+enum OpenIslandPanel {
+    /// A window that was ordered out while a full-screen Space came or went is afterwards on
+    /// the first desktop only, whatever its collection behaviour says, and stays there. So each
+    /// showing has a window of its own, made here.
+    static func make<Panel: NSPanel>(_ type: Panel.Type = NSPanel.self) -> Panel {
+        let panel = Panel(
+            contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        // The island draws its own shadow, which follows it as it grows.
+        panel.hasShadow = false
+        panel.isMovable = false
+        panel.hidesOnDeactivate = false
+        panel.appearance = NSAppearance(named: .darkAqua)
+        return panel
+    }
+}
+
 /// Keeps the window of an open island just larger than the island: room for its shadow and the
 /// overshoot of the spring, and no more, since a window takes the clicks meant for what is under
 /// it. It grows at once and shrinks only after the island has had time to settle.
