@@ -19,7 +19,7 @@ final class RequestCardController {
     /// button sits in the same place.
     private static let settleDelay: TimeInterval = max(0.6, NSEvent.doubleClickInterval + 0.1)
 
-    private let panel: NSPanel
+    private var panel: NSPanel
     private let model: AppModel
     private let presence: IslandPresence
     private let stage = IslandStage()
@@ -37,18 +37,7 @@ final class RequestCardController {
     init(model: AppModel, presence: IslandPresence) {
         self.model = model
         self.presence = presence
-        panel = CardPanel(
-            contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        // The island draws its own shadow, which follows it as it grows.
-        panel.hasShadow = false
-        panel.isMovable = false
-        panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.appearance = NSAppearance(named: .darkAqua)
+        panel = Self.makePanel()
 
         stage.onOpenSizeChange = { [weak self] in self?.layout() }
         queueChanges = model.$snapshot.map(\.raised).removeDuplicates()
@@ -59,6 +48,12 @@ final class RequestCardController {
             guard let self else { return }
             self.show(self.model.snapshot.raised)
         }
+    }
+
+    private static func makePanel() -> NSPanel {
+        let panel = OpenIslandPanel.make(CardPanel.self)
+        panel.becomesKeyOnlyIfNeeded = true
+        return panel
     }
 
     private func show(_ requests: [PendingRequest]) {
@@ -104,6 +99,7 @@ final class RequestCardController {
             let hosting = FirstClickHostingView(rootView: content)
             // The window has the size it is given; left to itself the hosting view would resize it.
             hosting.sizingOptions = []
+            panel = Self.makePanel()
             panel.contentView = hosting
         }
         layout()

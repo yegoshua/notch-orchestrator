@@ -10,7 +10,7 @@ import SwiftUI
 final class TransientLineController {
     private static let showFor: TimeInterval = 4
 
-    private let panel: NSPanel
+    private var panel: NSPanel
     private let model: AppModel
     private let presence: IslandPresence
     private let stage = IslandStage()
@@ -23,18 +23,7 @@ final class TransientLineController {
     init(model: AppModel, presence: IslandPresence) {
         self.model = model
         self.presence = presence
-        panel = NSPanel(
-            contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.isMovable = false
-        panel.hidesOnDeactivate = false
-        panel.appearance = NSAppearance(named: .darkAqua)
-
+        panel = Self.makePanel()
         stage.onOpenSizeChange = { [weak self] in self?.fitWindow() }
         model.lines.receive(on: DispatchQueue.main).sink { [weak self] in self?.show($0) }.store(in: &subscriptions)
         // Whatever else opens under the notch has the place.
@@ -42,6 +31,12 @@ final class TransientLineController {
             if isOpen { self?.remove() }
         }.store(in: &subscriptions)
         observers = IslandScreen.observe { [weak self] in self?.remove() }
+    }
+
+    private static func makePanel() -> NSPanel {
+        let panel = OpenIslandPanel.make()
+        panel.ignoresMouseEvents = true
+        return panel
     }
 
     private func show(_ line: TransientLine) {
@@ -62,6 +57,7 @@ final class TransientLineController {
             let hosting = NSHostingView(rootView: content)
             // The window has the size it is given; left to itself the hosting view would resize it.
             hosting.sizingOptions = []
+            panel = Self.makePanel()
             panel.contentView = hosting
             sizer.fit(panel, to: CGSize(width: width, height: geometry.frame.height + Island.lineHeight), geometry: geometry, on: screen.frame)
         }

@@ -12,7 +12,7 @@ final class ExpandedPanelController {
     private static let openDelay: TimeInterval = 0.12
     private static let closeDelay: TimeInterval = 0.25
 
-    private let panel: NSPanel
+    private var panel: NSPanel
     private let model: AppModel
     private let presence: IslandPresence
     private let stage = IslandStage()
@@ -41,17 +41,7 @@ final class ExpandedPanelController {
     init(model: AppModel, presence: IslandPresence) {
         self.model = model
         self.presence = presence
-        panel = NSPanel(
-            contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        // The island draws its own shadow, which follows it as it grows.
-        panel.hasShadow = false
-        panel.isMovable = false
-        panel.hidesOnDeactivate = false
-        panel.appearance = NSAppearance(named: .darkAqua)
+        panel = OpenIslandPanel.make()
 
         let moved: (NSEvent) -> Void = { [weak self] _ in
             Task { @MainActor in self?.pointerMoved() }
@@ -117,6 +107,7 @@ final class ExpandedPanelController {
                         self?.collapse()
                     })
             }
+            panel = OpenIslandPanel.make()
             panel.contentView = FirstClickHostingView(rootView: AnyView(list))
             sizer.fit(panel, to: CGSize(width: Island.listWidth, height: Island.maxHeight), geometry: geometry, on: screen.frame)
             panel.orderFrontRegardless()
